@@ -18,6 +18,7 @@ const NAV: { href: string; label: string; icon: string; roles: string[]; badge?:
   { href: '/tasks', label: 'Tasks', roles: ALL_ROLES, icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' },
   { href: '/calendar', label: 'Calendar', roles: ALL_ROLES, icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
   { href: '/messages', label: 'Messages', roles: ALL_ROLES, badge: true, icon: 'M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z' },
+  { href: '/notifications', label: 'Notifications', roles: STAFF, badge: true, icon: 'M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9' },
   { href: '/features', label: 'Features', roles: ALL_ROLES, icon: 'M13 10V3L4 14h7v7l9-11h-7z' },
   { href: '/trash', label: 'Trash', roles: STAFF, icon: 'M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16' },
   { href: '/users', label: 'Users', roles: ['admin'], icon: 'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z' },
@@ -30,6 +31,7 @@ export default function Sidebar() {
   const role = (session?.user as any)?.role;
   const roleCfg = role ? ROLE_CONFIG[role as keyof typeof ROLE_CONFIG] : null;
   const [unread, setUnread] = useState(0);
+  const [notifUnread, setNotifUnread] = useState(0);
 
   useEffect(() => {
     fetch('/api/messages').then(r => r.json()).then((msgs: any[]) => {
@@ -38,7 +40,12 @@ export default function Sidebar() {
         setUnread(msgs.filter(m => m.to_user_id == myId && !m.is_read).length);
       }
     }).catch(() => {});
-  }, [pathname, session]);
+    if (role === 'admin' || role === 'manager') {
+      fetch('/api/notifications').then(r => r.json()).then(d => {
+        setNotifUnread(Number(d?.unread || 0));
+      }).catch(() => {});
+    }
+  }, [pathname, session, role]);
 
   return (
     <aside className="w-60 shrink-0 flex flex-col bg-white border-r border-slate-100 min-h-screen">
@@ -73,9 +80,10 @@ export default function Sidebar() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d={item.icon}/>
               </svg>
               <span className="flex-1">{item.label}</span>
-              {item.badge && unread > 0 && (
-                <span className="w-5 h-5 bg-rose-500 text-white text-xs rounded-full flex items-center justify-center font-bold">{unread}</span>
-              )}
+              {item.badge && (() => {
+                const count = item.href === '/messages' ? unread : item.href === '/notifications' ? notifUnread : 0;
+                return count > 0 ? <span className="w-5 h-5 bg-rose-500 text-white text-xs rounded-full flex items-center justify-center font-bold">{count > 99 ? '99+' : count}</span> : null;
+              })()}
             </Link>
           );
         })}

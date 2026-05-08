@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import AppShell from '@/components/AppShell';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { ROLE_CONFIG, cn } from '@/lib/utils';
+import { ROLE_CONFIG, cn, timeAgo } from '@/lib/utils';
 
 const ALL_ROLES = ['admin','manager','salesman','viewer'] as const;
 
@@ -110,7 +110,7 @@ export default function UsersPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
-                  {['User','Email','Role','Status','Actions'].map(h=><th key={h} className="text-left px-5 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">{h}</th>)}
+                  {['User','Email','Role','Status','Last Login','Actions'].map(h=><th key={h} className="text-left px-5 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">{h}</th>)}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
@@ -138,6 +138,16 @@ export default function UsersPage() {
                           <span className={cn('w-1.5 h-1.5 rounded-full', user.is_active ? 'bg-emerald-500' : 'bg-slate-400')}/>
                           {user.is_active ? 'Active' : 'Inactive'}
                         </span>
+                      </td>
+                      <td className="px-5 py-4">
+                        {user.last_login_at ? (
+                          <div>
+                            <div className="text-sm text-slate-700">{timeAgo(user.last_login_at)}</div>
+                            <div className="text-xs text-slate-400">{Number(user.login_count || 0)} {Number(user.login_count || 0) === 1 ? 'login' : 'logins'}</div>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-slate-400">Never</span>
+                        )}
                       </td>
                       <td className="px-5 py-4">
                         {!isSelf && (

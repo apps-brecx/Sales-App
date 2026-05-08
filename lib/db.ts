@@ -149,6 +149,9 @@ export async function initSchema() {
     try { await db.execute(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS ${col}`); } catch {}
   }
   try { await db.execute(`ALTER TABLE lead_updates ADD COLUMN IF NOT EXISTS email_submission_id INTEGER REFERENCES email_submissions(id) ON DELETE SET NULL`); } catch {}
+  for (const col of ['last_login_at TIMESTAMPTZ DEFAULT NULL', 'login_count INTEGER NOT NULL DEFAULT 0', 'notifications_seen_at TIMESTAMPTZ DEFAULT NOW()']) {
+    try { await db.execute(`ALTER TABLE users ADD COLUMN IF NOT EXISTS ${col}`); } catch {}
+  }
 
   const defaults = [
     ['company_name', 'My Company'], ['currency', 'USD'],
@@ -175,7 +178,35 @@ export async function setSetting(key: string, value: string) {
 
 // ─── Users ────────────────────────────────────────────────────────────────────
 export async function getAllUsers() {
-  return (await getDb().execute(`SELECT id,name,email,role,is_active,created_at FROM users ORDER BY name`)).rows;
+  return (await getDb().execute(`SELECT id,name,email,role,is_active,created_at,last_login_at,login_count FROM users ORDER BY name`)).rows;
+}
+export async function recordLogin(userId: number) {
+  await getDb().execute({ sql: `UPDATE users SET last_login_at=NOW(),login_count=login_count+1 WHERE id=?`, args: [userId] });
+}
+export async function getNotifications(forUserId: number, limit = 100) {
+  return (await getDb().execute({ sql: `
+    SELECT lu.id, lu.lead_id, lu.user_id, lu.content, lu.source, lu.created_at, lu.email_date,
+           lu.email_submission_id,
+           l.company_name, l.stage,
+           u.name as user_name, u.role as user_role,
+           (SELECT notifications_seen_at FROM users WHERE id=?) as seen_at
+    FROM lead_updates lu
+    JOIN leads l ON lu.lead_id=l.id
+    LEFT JOIN users u ON lu.user_id=u.id
+    WHERE lu.user_id IS NOT NULL AND lu.user_id != ?
+    ORDER BY lu.created_at DESC LIMIT ?
+  `, args: [forUserId, forUserId, limit] })).rows;
+}
+export async function getUnreadNotificationCount(forUserId: number) {
+  const r = await getDb().execute({ sql: `
+    SELECT COUNT(*)::int as c FROM lead_updates lu
+    WHERE lu.user_id IS NOT NULL AND lu.user_id != ?
+      AND lu.created_at > COALESCE((SELECT notifications_seen_at FROM users WHERE id=?), '1970-01-01'::timestamptz)
+  `, args: [forUserId, forUserId] });
+  return Number((r.rows[0] as any)?.c || 0);
+}
+export async function markNotificationsRead(userId: number) {
+  await getDb().execute({ sql: `UPDATE users SET notifications_seen_at=NOW() WHERE id=?`, args: [userId] });
 }
 export async function getUserByEmail(email: string) {
   return (await getDb().execute({ sql: `SELECT * FROM users WHERE email=?`, args: [email] })).rows[0] || null;

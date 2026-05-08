@@ -1,7 +1,7 @@
 import { NextAuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import bcrypt from 'bcryptjs';
-import { getUserByEmail, initSchema } from './db';
+import { getUserByEmail, initSchema, recordLogin } from './db';
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -15,6 +15,7 @@ export const authOptions: NextAuthOptions = {
         if (!user || !user.is_active) return null;
         const valid = await bcrypt.compare(credentials.password, user.password_hash as string);
         if (!valid) return null;
+        try { await recordLogin(Number(user.id)); } catch {}
         return { id: String(user.id), name: user.name as string, email: user.email as string, role: user.role as string };
       },
     }),
