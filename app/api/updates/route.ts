@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
   const lead = await getLeadById(Number(lead_id)) as any;
   if (!lead) return NextResponse.json({ error: 'Lead not found' }, { status: 404 });
   if (stage_to && stage_to !== lead.stage) {
-    await getDb().execute({ sql: `UPDATE leads SET stage=?,updated_at=datetime('now') WHERE id=?`, args: [stage_to, lead_id] });
+    await getDb().execute({ sql: `UPDATE leads SET stage=?,updated_at=NOW() WHERE id=?`, args: [stage_to, lead_id] });
   }
   const userId = (session.user as any).id;
   const id = await createUpdate({ lead_id: Number(lead_id), user_id: userId ? Number(userId) : null, content: content.trim(), stage_from: stage_from||null, stage_to: stage_to||null, source: source||'manual', email_date: email_date||null });

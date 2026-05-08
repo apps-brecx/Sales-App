@@ -168,8 +168,12 @@ export async function getLeadById(id: number) {
 export async function findLeadByCompany(company: string) {
   return (await getDb().execute({ sql: `SELECT * FROM leads WHERE LOWER(TRIM(company_name))=LOWER(TRIM(?)) AND deleted_at IS NULL`, args: [company] })).rows[0] || null;
 }
-export async function createLead(d: { company_name: string; contact_name?: string|null; contact_email?: string|null; contact_phone?: string|null; stage?: string; assigned_to?: number|null; source?: string; notes?: string|null; value?: string|null }) {
-  return (await getDb().execute({ sql: `INSERT INTO leads (company_name,contact_name,contact_email,contact_phone,stage,assigned_to,source,notes,value) VALUES (?,?,?,?,?,?,?,?,?) RETURNING id`, args: [d.company_name, d.contact_name??null, d.contact_email??null, d.contact_phone??null, d.stage??'new', d.assigned_to??null, d.source??'manual', d.notes??null, d.value??null] })).lastInsertRowid;
+export async function createLead(d: { company_name: string; contact_name?: string|null; contact_email?: string|null; contact_phone?: string|null; stage?: string; assigned_to?: number|null; source?: string; notes?: string|null; value?: string|null; created_at?: string|null }) {
+  const baseArgs = [d.company_name, d.contact_name??null, d.contact_email??null, d.contact_phone??null, d.stage??'new', d.assigned_to??null, d.source??'manual', d.notes??null, d.value??null];
+  if (d.created_at) {
+    return (await getDb().execute({ sql: `INSERT INTO leads (company_name,contact_name,contact_email,contact_phone,stage,assigned_to,source,notes,value,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?::timestamptz,?::timestamptz) RETURNING id`, args: [...baseArgs, d.created_at, d.created_at] })).lastInsertRowid;
+  }
+  return (await getDb().execute({ sql: `INSERT INTO leads (company_name,contact_name,contact_email,contact_phone,stage,assigned_to,source,notes,value) VALUES (?,?,?,?,?,?,?,?,?) RETURNING id`, args: baseArgs })).lastInsertRowid;
 }
 export async function updateLead(id: number, data: Record<string, any>) {
   const keys = Object.keys(data);
@@ -196,9 +200,15 @@ export async function bulkUpdateLeads(ids: number[], data: Record<string, any>) 
 export async function getUpdatesByLead(leadId: number) {
   return (await getDb().execute({ sql: `SELECT lu.*,u.name as user_name FROM lead_updates lu LEFT JOIN users u ON lu.user_id=u.id WHERE lu.lead_id=? ORDER BY lu.created_at DESC`, args: [leadId] })).rows;
 }
-export async function createUpdate(d: { lead_id: number; user_id?: number|null; content: string; stage_from?: string|null; stage_to?: string|null; source?: string; email_date?: string|null }) {
-  const r = await getDb().execute({ sql: `INSERT INTO lead_updates (lead_id,user_id,content,stage_from,stage_to,source,email_date) VALUES (?,?,?,?,?,?,?) RETURNING id`, args: [d.lead_id, d.user_id??null, d.content, d.stage_from??null, d.stage_to??null, d.source??'manual', d.email_date??null] });
-  await getDb().execute({ sql: `UPDATE leads SET updated_at=NOW() WHERE id=?`, args: [d.lead_id] });
+export async function createUpdate(d: { lead_id: number; user_id?: number|null; content: string; stage_from?: string|null; stage_to?: string|null; source?: string; email_date?: string|null; created_at?: string|null }) {
+  let r;
+  if (d.created_at) {
+    r = await getDb().execute({ sql: `INSERT INTO lead_updates (lead_id,user_id,content,stage_from,stage_to,source,email_date,created_at) VALUES (?,?,?,?,?,?,?,?::timestamptz) RETURNING id`, args: [d.lead_id, d.user_id??null, d.content, d.stage_from??null, d.stage_to??null, d.source??'manual', d.email_date??null, d.created_at] });
+    await getDb().execute({ sql: `UPDATE leads SET updated_at=GREATEST(updated_at, ?::timestamptz) WHERE id=?`, args: [d.created_at, d.lead_id] });
+  } else {
+    r = await getDb().execute({ sql: `INSERT INTO lead_updates (lead_id,user_id,content,stage_from,stage_to,source,email_date) VALUES (?,?,?,?,?,?,?) RETURNING id`, args: [d.lead_id, d.user_id??null, d.content, d.stage_from??null, d.stage_to??null, d.source??'manual', d.email_date??null] });
+    await getDb().execute({ sql: `UPDATE leads SET updated_at=NOW() WHERE id=?`, args: [d.lead_id] });
+  }
   return r.lastInsertRowid;
 }
 export async function deleteUpdate(id: number) {

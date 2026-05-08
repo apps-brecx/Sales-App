@@ -65,7 +65,11 @@ export default function ParseEmailPage() {
                 value={emailText} onChange={e=>setEmailText(e.target.value)} required/>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <div><label className="label">Email Date</label><input type="date" className="input" value={emailDate} onChange={e=>setEmailDate(e.target.value)}/></div>
+              <div>
+                <label className="label">Email Date</label>
+                <input type="date" className="input" value={emailDate} onChange={e=>setEmailDate(e.target.value)}/>
+                <p className="text-xs text-slate-400 mt-1">Leads & updates from this email will be timestamped to this date.</p>
+              </div>
               <div>
                 <label className="label">Assign New Leads To</label>
                 <select className="input" value={assignedTo} onChange={e=>setAssignedTo(e.target.value)}>

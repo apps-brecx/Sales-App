@@ -30,13 +30,14 @@ Respond ONLY with valid JSON: {"leads":[...],"summary":"...","email_date":"YYYY-
     try { parsed = JSON.parse(raw.replace(/```json|```/g, '').trim()); }
     catch { return NextResponse.json({ error: 'Failed to parse AI response', raw }, { status: 500 }); }
     const userId = (session.user as any).id ? Number((session.user as any).id) : null;
+    const backdateAt: string | null = email_date || parsed.email_date || null;
     const results = [];
     for (const item of parsed.leads) {
       if (!item.company_name) continue;
       let lead = await findLeadByCompany(item.company_name) as any;
       let isNew = false;
       if (!lead) {
-        const id = await createLead({ company_name: item.company_name, contact_name: item.contact_name||null, contact_email: item.contact_email||null, contact_phone: item.contact_phone||null, stage: item.stage||'new', assigned_to: assigned_to||null, source: 'email' });
+        const id = await createLead({ company_name: item.company_name, contact_name: item.contact_name||null, contact_email: item.contact_email||null, contact_phone: item.contact_phone||null, stage: item.stage||'new', assigned_to: assigned_to||null, source: 'email', created_at: backdateAt });
         lead = await getLeadById(Number(id));
         isNew = true;
       } else {
@@ -47,10 +48,12 @@ Respond ONLY with valid JSON: {"leads":[...],"summary":"...","email_date":"YYYY-
         if (item.stage && item.stage !== lead.stage) upd.stage = item.stage;
         if (Object.keys(upd).length) {
           const keys = Object.keys(upd);
-          await getDb().execute({ sql: `UPDATE leads SET ${keys.map(k=>`${k}=?`).join(',')},updated_at=datetime('now') WHERE id=?`, args: [...keys.map(k=>upd[k]), lead.id] });
+          const updatedAtClause = backdateAt ? `,updated_at=GREATEST(updated_at, ?::timestamptz)` : `,updated_at=NOW()`;
+          const updArgs = [...keys.map(k=>upd[k]), ...(backdateAt ? [backdateAt] : []), lead.id];
+          await getDb().execute({ sql: `UPDATE leads SET ${keys.map(k=>`${k}=?`).join(',')}${updatedAtClause} WHERE id=?`, args: updArgs });
         }
       }
-      const uid = await createUpdate({ lead_id: Number(lead.id), user_id: userId, content: item.update_content, stage_from: isNew ? null : lead.stage as string, stage_to: item.stage||lead.stage as string, source: 'email', email_date: email_date||parsed.email_date||null });
+      const uid = await createUpdate({ lead_id: Number(lead.id), user_id: userId, content: item.update_content, stage_from: isNew ? null : lead.stage as string, stage_to: item.stage||lead.stage as string, source: 'email', email_date: backdateAt, created_at: backdateAt });
       results.push({ lead_id: Number(lead.id), company_name: item.company_name, is_new: isNew, update_id: Number(uid) });
     }
     return NextResponse.json({ success: true, summary: parsed.summary, email_date: parsed.email_date, results, leads_created: results.filter(r=>r.is_new).length, leads_updated: results.filter(r=>!r.is_new).length });
