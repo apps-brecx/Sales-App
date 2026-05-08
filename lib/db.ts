@@ -1,69 +1,88 @@
-import { createClient, Client } from '@libsql/client';
-import path from 'path';
-import fs from 'fs';
+import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 
-let client: Client;
+let sqlClient: NeonQueryFunction<false, false> | null = null;
 
-export function getDb(): Client {
-  if (!client) {
-    const dataDir = path.join(process.cwd(), 'data');
-    if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
-    client = createClient({ url: `file:${path.join(dataDir, 'sales.db')}` });
+function getSql(): NeonQueryFunction<false, false> {
+  if (!sqlClient) {
+    if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is not set');
+    sqlClient = neon(process.env.DATABASE_URL);
   }
-  return client;
+  return sqlClient;
 }
 
+type ExecArg = string | { sql: string; args?: any[] };
+type ExecResult = { rows: any[]; lastInsertRowid?: any };
+
+export function getDb() {
+  return {
+    async execute(arg: ExecArg): Promise<ExecResult> {
+      const s = getSql();
+      const text = typeof arg === 'string' ? arg : arg.sql;
+      const params = typeof arg === 'string' ? [] : (arg.args ?? []);
+      let i = 0;
+      const pgText = text.replace(/\?/g, () => `$${++i}`);
+      const rows = (await s(pgText, params)) as any[];
+      return { rows, lastInsertRowid: rows[0]?.id };
+    },
+    async executeMultiple(text: string): Promise<void> {
+      const s = getSql();
+      const stmts = text.split(';').map(x => x.trim()).filter(Boolean);
+      for (const stmt of stmts) await s(stmt, []);
+    },
+  };
+}
+
+let schemaInitialized = false;
+
 export async function initSchema() {
+  if (schemaInitialized) return;
   const db = getDb();
   await db.executeMultiple(`
-    PRAGMA journal_mode = WAL;
-    PRAGMA foreign_keys = ON;
-
     CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       name TEXT NOT NULL, email TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'salesman',
       is_active INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     CREATE TABLE IF NOT EXISTS leads (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       company_name TEXT NOT NULL, contact_name TEXT, contact_email TEXT, contact_phone TEXT,
       stage TEXT NOT NULL DEFAULT 'new', assigned_to INTEGER REFERENCES users(id) ON DELETE SET NULL,
       source TEXT NOT NULL DEFAULT 'manual', notes TEXT, value TEXT DEFAULT NULL,
-      deleted_at TEXT DEFAULT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      deleted_at TIMESTAMPTZ DEFAULT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     CREATE TABLE IF NOT EXISTS lead_updates (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       lead_id INTEGER NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
       user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
       content TEXT NOT NULL, stage_from TEXT, stage_to TEXT,
       source TEXT NOT NULL DEFAULT 'manual', email_date TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     CREATE TABLE IF NOT EXISTS messages (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       from_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       to_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
       subject TEXT NOT NULL, body TEXT NOT NULL,
       lead_id INTEGER REFERENCES leads(id) ON DELETE SET NULL,
       is_read INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     CREATE TABLE IF NOT EXISTS calendar_events (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       lead_id INTEGER REFERENCES leads(id) ON DELETE SET NULL,
       title TEXT NOT NULL, description TEXT,
       event_date TEXT NOT NULL, event_time TEXT,
       type TEXT NOT NULL DEFAULT 'Meeting',
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     CREATE TABLE IF NOT EXISTS app_settings (
@@ -74,22 +93,23 @@ export async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_leads_deleted ON leads(deleted_at);
     CREATE INDEX IF NOT EXISTS idx_updates_lead ON lead_updates(lead_id);
     CREATE INDEX IF NOT EXISTS idx_messages_to ON messages(to_user_id);
-    CREATE INDEX IF NOT EXISTS idx_events_date ON calendar_events(event_date);
+    CREATE INDEX IF NOT EXISTS idx_events_date ON calendar_events(event_date)
   `);
 
-  // Migrations for existing DBs
-  for (const col of ['deleted_at TEXT DEFAULT NULL', 'value TEXT DEFAULT NULL']) {
-    try { await db.execute(`ALTER TABLE leads ADD COLUMN ${col}`); } catch {}
+  for (const col of ['deleted_at TIMESTAMPTZ DEFAULT NULL', 'value TEXT DEFAULT NULL']) {
+    const colName = col.split(' ')[0];
+    try { await db.execute(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS ${col}`); } catch {}
   }
 
-  // Default settings
   const defaults = [
     ['company_name', 'My Company'], ['currency', 'USD'],
     ['timezone', 'America/New_York'], ['accent_color', 'indigo'],
   ];
   for (const [k, v] of defaults) {
-    await db.execute({ sql: `INSERT OR IGNORE INTO app_settings (key,value) VALUES (?,?)`, args: [k, v] });
+    await db.execute({ sql: `INSERT INTO app_settings (key,value) VALUES (?,?) ON CONFLICT (key) DO NOTHING`, args: [k, v] });
   }
+
+  schemaInitialized = true;
 }
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
@@ -101,7 +121,7 @@ export async function getAllSettings() {
   return out;
 }
 export async function setSetting(key: string, value: string) {
-  await getDb().execute({ sql: `INSERT OR REPLACE INTO app_settings (key,value) VALUES (?,?)`, args: [key, value] });
+  await getDb().execute({ sql: `INSERT INTO app_settings (key,value) VALUES (?,?) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value`, args: [key, value] });
 }
 
 // ─── Users ────────────────────────────────────────────────────────────────────
@@ -115,7 +135,7 @@ export async function getUserById(id: number) {
   return (await getDb().execute({ sql: `SELECT id,name,email,role,is_active,created_at FROM users WHERE id=?`, args: [id] })).rows[0] || null;
 }
 export async function createUser(d: { name: string; email: string; password_hash: string; role: string }) {
-  return (await getDb().execute({ sql: `INSERT INTO users (name,email,password_hash,role) VALUES (?,?,?,?)`, args: [d.name, d.email, d.password_hash, d.role] })).lastInsertRowid;
+  return (await getDb().execute({ sql: `INSERT INTO users (name,email,password_hash,role) VALUES (?,?,?,?) RETURNING id`, args: [d.name, d.email, d.password_hash, d.role] })).lastInsertRowid;
 }
 export async function updateUser(id: number, data: Record<string, any>) {
   const keys = Object.keys(data);
@@ -131,7 +151,7 @@ export async function getAllLeads() {
     SELECT l.*,u.name as assigned_name,COUNT(lu.id) as update_count,MAX(lu.created_at) as last_update
     FROM leads l LEFT JOIN users u ON l.assigned_to=u.id
     LEFT JOIN lead_updates lu ON l.id=lu.lead_id
-    WHERE l.deleted_at IS NULL GROUP BY l.id ORDER BY l.updated_at DESC
+    WHERE l.deleted_at IS NULL GROUP BY l.id, u.name ORDER BY l.updated_at DESC
   `)).rows;
 }
 export async function getTrashedLeads() {
@@ -139,7 +159,7 @@ export async function getTrashedLeads() {
     SELECT l.*,u.name as assigned_name,COUNT(lu.id) as update_count
     FROM leads l LEFT JOIN users u ON l.assigned_to=u.id
     LEFT JOIN lead_updates lu ON l.id=lu.lead_id
-    WHERE l.deleted_at IS NOT NULL GROUP BY l.id ORDER BY l.deleted_at DESC
+    WHERE l.deleted_at IS NOT NULL GROUP BY l.id, u.name ORDER BY l.deleted_at DESC
   `)).rows;
 }
 export async function getLeadById(id: number) {
@@ -149,17 +169,17 @@ export async function findLeadByCompany(company: string) {
   return (await getDb().execute({ sql: `SELECT * FROM leads WHERE LOWER(TRIM(company_name))=LOWER(TRIM(?)) AND deleted_at IS NULL`, args: [company] })).rows[0] || null;
 }
 export async function createLead(d: { company_name: string; contact_name?: string|null; contact_email?: string|null; contact_phone?: string|null; stage?: string; assigned_to?: number|null; source?: string; notes?: string|null; value?: string|null }) {
-  return (await getDb().execute({ sql: `INSERT INTO leads (company_name,contact_name,contact_email,contact_phone,stage,assigned_to,source,notes,value) VALUES (?,?,?,?,?,?,?,?,?)`, args: [d.company_name, d.contact_name??null, d.contact_email??null, d.contact_phone??null, d.stage??'new', d.assigned_to??null, d.source??'manual', d.notes??null, d.value??null] })).lastInsertRowid;
+  return (await getDb().execute({ sql: `INSERT INTO leads (company_name,contact_name,contact_email,contact_phone,stage,assigned_to,source,notes,value) VALUES (?,?,?,?,?,?,?,?,?) RETURNING id`, args: [d.company_name, d.contact_name??null, d.contact_email??null, d.contact_phone??null, d.stage??'new', d.assigned_to??null, d.source??'manual', d.notes??null, d.value??null] })).lastInsertRowid;
 }
 export async function updateLead(id: number, data: Record<string, any>) {
   const keys = Object.keys(data);
-  await getDb().execute({ sql: `UPDATE leads SET ${keys.map(k => `${k}=?`).join(',')},updated_at=datetime('now') WHERE id=?`, args: [...keys.map(k => data[k]), id] });
+  await getDb().execute({ sql: `UPDATE leads SET ${keys.map(k => `${k}=?`).join(',')},updated_at=NOW() WHERE id=?`, args: [...keys.map(k => data[k]), id] });
 }
 export async function softDeleteLead(id: number) {
-  await getDb().execute({ sql: `UPDATE leads SET deleted_at=datetime('now') WHERE id=?`, args: [id] });
+  await getDb().execute({ sql: `UPDATE leads SET deleted_at=NOW() WHERE id=?`, args: [id] });
 }
 export async function softDeleteLeads(ids: number[]) {
-  for (const id of ids) await getDb().execute({ sql: `UPDATE leads SET deleted_at=datetime('now') WHERE id=?`, args: [id] });
+  for (const id of ids) await getDb().execute({ sql: `UPDATE leads SET deleted_at=NOW() WHERE id=?`, args: [id] });
 }
 export async function restoreLeads(ids: number[]) {
   for (const id of ids) await getDb().execute({ sql: `UPDATE leads SET deleted_at=NULL WHERE id=?`, args: [id] });
@@ -169,7 +189,7 @@ export async function permanentDeleteLeads(ids: number[]) {
 }
 export async function bulkUpdateLeads(ids: number[], data: Record<string, any>) {
   const keys = Object.keys(data);
-  for (const id of ids) await getDb().execute({ sql: `UPDATE leads SET ${keys.map(k => `${k}=?`).join(',')},updated_at=datetime('now') WHERE id=?`, args: [...keys.map(k => data[k]), id] });
+  for (const id of ids) await getDb().execute({ sql: `UPDATE leads SET ${keys.map(k => `${k}=?`).join(',')},updated_at=NOW() WHERE id=?`, args: [...keys.map(k => data[k]), id] });
 }
 
 // ─── Updates ──────────────────────────────────────────────────────────────────
@@ -177,8 +197,8 @@ export async function getUpdatesByLead(leadId: number) {
   return (await getDb().execute({ sql: `SELECT lu.*,u.name as user_name FROM lead_updates lu LEFT JOIN users u ON lu.user_id=u.id WHERE lu.lead_id=? ORDER BY lu.created_at DESC`, args: [leadId] })).rows;
 }
 export async function createUpdate(d: { lead_id: number; user_id?: number|null; content: string; stage_from?: string|null; stage_to?: string|null; source?: string; email_date?: string|null }) {
-  const r = await getDb().execute({ sql: `INSERT INTO lead_updates (lead_id,user_id,content,stage_from,stage_to,source,email_date) VALUES (?,?,?,?,?,?,?)`, args: [d.lead_id, d.user_id??null, d.content, d.stage_from??null, d.stage_to??null, d.source??'manual', d.email_date??null] });
-  await getDb().execute({ sql: `UPDATE leads SET updated_at=datetime('now') WHERE id=?`, args: [d.lead_id] });
+  const r = await getDb().execute({ sql: `INSERT INTO lead_updates (lead_id,user_id,content,stage_from,stage_to,source,email_date) VALUES (?,?,?,?,?,?,?) RETURNING id`, args: [d.lead_id, d.user_id??null, d.content, d.stage_from??null, d.stage_to??null, d.source??'manual', d.email_date??null] });
+  await getDb().execute({ sql: `UPDATE leads SET updated_at=NOW() WHERE id=?`, args: [d.lead_id] });
   return r.lastInsertRowid;
 }
 export async function deleteUpdate(id: number) {
@@ -193,7 +213,7 @@ export async function getUnreadCount(userId: number) {
   return Number((await getDb().execute({ sql: `SELECT COUNT(*) as c FROM messages WHERE to_user_id=? AND is_read=0`, args: [userId] })).rows[0]?.c || 0);
 }
 export async function createMessage(d: { from_user_id: number; to_user_id: number|null; subject: string; body: string; lead_id?: number|null }) {
-  return (await getDb().execute({ sql: `INSERT INTO messages (from_user_id,to_user_id,subject,body,lead_id) VALUES (?,?,?,?,?)`, args: [d.from_user_id, d.to_user_id??null, d.subject, d.body, d.lead_id??null] })).lastInsertRowid;
+  return (await getDb().execute({ sql: `INSERT INTO messages (from_user_id,to_user_id,subject,body,lead_id) VALUES (?,?,?,?,?) RETURNING id`, args: [d.from_user_id, d.to_user_id??null, d.subject, d.body, d.lead_id??null] })).lastInsertRowid;
 }
 export async function markMessageRead(id: number) {
   await getDb().execute({ sql: `UPDATE messages SET is_read=1 WHERE id=?`, args: [id] });
@@ -210,7 +230,7 @@ export async function getAllEvents() {
   return (await getDb().execute(`SELECT e.*,u.name as user_name,l.company_name as lead_name FROM calendar_events e JOIN users u ON e.user_id=u.id LEFT JOIN leads l ON e.lead_id=l.id ORDER BY e.event_date ASC, e.event_time ASC`)).rows;
 }
 export async function createEvent(d: { user_id: number; lead_id?: number|null; title: string; description?: string|null; event_date: string; event_time?: string|null; type?: string }) {
-  return (await getDb().execute({ sql: `INSERT INTO calendar_events (user_id,lead_id,title,description,event_date,event_time,type) VALUES (?,?,?,?,?,?,?)`, args: [d.user_id, d.lead_id??null, d.title, d.description??null, d.event_date, d.event_time??null, d.type??'Meeting'] })).lastInsertRowid;
+  return (await getDb().execute({ sql: `INSERT INTO calendar_events (user_id,lead_id,title,description,event_date,event_time,type) VALUES (?,?,?,?,?,?,?) RETURNING id`, args: [d.user_id, d.lead_id??null, d.title, d.description??null, d.event_date, d.event_time??null, d.type??'Meeting'] })).lastInsertRowid;
 }
 export async function deleteEvent(id: number) {
   await getDb().execute({ sql: `DELETE FROM calendar_events WHERE id=?`, args: [id] });
@@ -221,15 +241,15 @@ export async function getDashboardStats() {
   const db = getDb();
   const [total, newWeek, won, lost, today, week, byStage, recent, topSales, trendData] = await Promise.all([
     db.execute(`SELECT COUNT(*) as c FROM leads WHERE deleted_at IS NULL`),
-    db.execute(`SELECT COUNT(*) as c FROM leads WHERE deleted_at IS NULL AND created_at>=datetime('now','-7 days')`),
+    db.execute(`SELECT COUNT(*) as c FROM leads WHERE deleted_at IS NULL AND created_at>=NOW() - INTERVAL '7 days'`),
     db.execute(`SELECT COUNT(*) as c FROM leads WHERE deleted_at IS NULL AND stage='closed_won'`),
     db.execute(`SELECT COUNT(*) as c FROM leads WHERE deleted_at IS NULL AND stage='closed_lost'`),
-    db.execute(`SELECT COUNT(*) as c FROM lead_updates WHERE created_at>=datetime('now','start of day')`),
-    db.execute(`SELECT COUNT(*) as c FROM lead_updates WHERE created_at>=datetime('now','-7 days')`),
+    db.execute(`SELECT COUNT(*) as c FROM lead_updates WHERE created_at>=DATE_TRUNC('day', NOW())`),
+    db.execute(`SELECT COUNT(*) as c FROM lead_updates WHERE created_at>=NOW() - INTERVAL '7 days'`),
     db.execute(`SELECT stage,COUNT(*) as c FROM leads WHERE deleted_at IS NULL GROUP BY stage`),
     db.execute(`SELECT lu.*,l.company_name,u.name as user_name FROM lead_updates lu JOIN leads l ON lu.lead_id=l.id LEFT JOIN users u ON lu.user_id=u.id WHERE l.deleted_at IS NULL ORDER BY lu.created_at DESC LIMIT 8`),
-    db.execute(`SELECT u.name,COUNT(lu.id) as update_count FROM lead_updates lu JOIN users u ON lu.user_id=u.id WHERE lu.created_at>=datetime('now','-7 days') GROUP BY lu.user_id ORDER BY update_count DESC LIMIT 3`),
-    db.execute(`SELECT DATE(created_at) as day,COUNT(*) as c FROM leads WHERE deleted_at IS NULL AND created_at>=datetime('now','-30 days') GROUP BY day ORDER BY day ASC`),
+    db.execute(`SELECT u.name,COUNT(lu.id) as update_count FROM lead_updates lu JOIN users u ON lu.user_id=u.id WHERE lu.created_at>=NOW() - INTERVAL '7 days' GROUP BY u.name ORDER BY update_count DESC LIMIT 3`),
+    db.execute(`SELECT DATE(created_at) as day,COUNT(*) as c FROM leads WHERE deleted_at IS NULL AND created_at>=NOW() - INTERVAL '30 days' GROUP BY day ORDER BY day ASC`),
   ]);
   const by_stage: Record<string, number> = {};
   byStage.rows.forEach((r: any) => { by_stage[r.stage] = Number(r.c); });
