@@ -3,6 +3,7 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import Sidebar from './Sidebar';
+import QuickLog from './QuickLog';
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const { data: session, status } = useSession();
@@ -17,10 +18,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     </div>
   );
   if (!session) return null;
+  const role = (session.user as any)?.role;
   return (
     <div className="flex min-h-screen bg-slate-50">
       <Sidebar />
       <main className="flex-1 overflow-auto">{children}</main>
+      {role !== 'viewer' && <QuickLog />}
     </div>
   );
 }

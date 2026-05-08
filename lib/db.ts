@@ -144,7 +144,7 @@ export async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due_date)
   `);
 
-  for (const col of ['deleted_at TIMESTAMPTZ DEFAULT NULL', 'value TEXT DEFAULT NULL']) {
+  for (const col of ['deleted_at TIMESTAMPTZ DEFAULT NULL', 'value TEXT DEFAULT NULL', 'tags TEXT DEFAULT NULL']) {
     const colName = col.split(' ')[0];
     try { await db.execute(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS ${col}`); } catch {}
   }
@@ -451,7 +451,7 @@ export async function getMyLeads(userId: number) {
 
 export async function getMyHomeStats(userId: number) {
   const db = getDb();
-  const [staleLeads, activeLeads, upcomingEvents, recentUpdates, counts, urgentTasks] = await Promise.all([
+  const [staleLeads, activeLeads, upcomingEvents, recentUpdates, counts, urgentTasks, trendData, valueRows, wonThisMonth] = await Promise.all([
     db.execute({ sql: `
       SELECT l.id,l.company_name,l.stage,l.contact_name,l.updated_at,
         (SELECT MAX(created_at) FROM lead_updates WHERE lead_id=l.id) as last_update
@@ -496,19 +496,55 @@ export async function getMyHomeStats(userId: number) {
         AND t.due_date <= TO_CHAR(NOW(), 'YYYY-MM-DD')
       ORDER BY t.due_date ASC LIMIT 10
     `, args: [userId] }),
+    db.execute({ sql: `
+      SELECT TO_CHAR(DATE(created_at), 'YYYY-MM-DD') as day, COUNT(*)::int as c
+      FROM lead_updates
+      WHERE user_id=? AND created_at>=NOW() - INTERVAL '30 days'
+      GROUP BY day ORDER BY day ASC
+    `, args: [userId] }),
+    db.execute({ sql: `
+      SELECT value, stage FROM leads
+      WHERE deleted_at IS NULL AND assigned_to=?
+        AND stage NOT IN ('closed_won','closed_lost')
+        AND value IS NOT NULL AND value != ''
+    `, args: [userId] }),
+    db.execute({ sql: `
+      SELECT value FROM leads
+      WHERE deleted_at IS NULL AND assigned_to=?
+        AND stage='closed_won'
+        AND updated_at >= DATE_TRUNC('month', NOW())
+        AND value IS NOT NULL AND value != ''
+    `, args: [userId] }),
   ]);
   const c: any = counts.rows[0] || {};
+  const stageProb: Record<string, number> = { new: 0.1, contacted: 0.25, follow_up: 0.4, proposal: 0.7 };
+  const parseV = (s: any) => { const n = parseFloat(String(s||'').replace(/[^\d.]/g,'')); return isNaN(n) ? 0 : n; };
+  let pipelineValue = 0, weightedForecast = 0;
+  for (const r of valueRows.rows as any[]) {
+    const v = parseV(r.value);
+    pipelineValue += v;
+    weightedForecast += v * (stageProb[r.stage] || 0);
+  }
+  let wonValueThisMonth = 0;
+  for (const r of wonThisMonth.rows as any[]) wonValueThisMonth += parseV(r.value);
   return {
     stale_leads: staleLeads.rows,
     active_leads: activeLeads.rows,
     upcoming_events: upcomingEvents.rows,
     recent_updates: recentUpdates.rows,
     urgent_tasks: urgentTasks.rows,
+    trend_data: trendData.rows,
     counts: {
       active: Number(c.active||0),
       won: Number(c.won||0),
       lost: Number(c.lost||0),
       new_this_week: Number(c.new_this_week||0),
+    },
+    goals: {
+      pipeline_value: Math.round(pipelineValue),
+      weighted_forecast: Math.round(weightedForecast),
+      won_value_this_month: Math.round(wonValueThisMonth),
+      won_count_this_month: (wonThisMonth.rows as any[]).length,
     },
   };
 }

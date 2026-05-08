@@ -99,6 +99,7 @@ const SCHEMA = [
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
   `ALTER TABLE lead_updates ADD COLUMN IF NOT EXISTS email_submission_id INTEGER REFERENCES email_submissions(id) ON DELETE SET NULL`,
+  `ALTER TABLE leads ADD COLUMN IF NOT EXISTS tags TEXT DEFAULT NULL`,
   `CREATE INDEX IF NOT EXISTS idx_leads_stage ON leads(stage)`,
   `CREATE INDEX IF NOT EXISTS idx_leads_deleted ON leads(deleted_at)`,
   `CREATE INDEX IF NOT EXISTS idx_updates_lead ON lead_updates(lead_id)`,

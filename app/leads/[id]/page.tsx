@@ -20,13 +20,23 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
   const [updateStage, setUpdateStage] = useState('');
   const [addingUpdate, setAddingUpdate] = useState(false);
   const [editForm, setEditForm] = useState<any>({});
+  const [noteDraft, setNoteDraft] = useState('');
+  const [savingNote, setSavingNote] = useState(false);
 
   const load = () => {
     fetch(`/api/leads/${params.id}`)
       .then(r => { if (!r.ok) throw new Error(); return r.json(); })
-      .then(d => { setLead(d); setEditForm(d); setLoading(false); })
+      .then(d => { setLead(d); setEditForm(d); setNoteDraft(d.notes || ''); setLoading(false); })
       .catch(() => router.push('/leads'));
   };
+
+  async function saveNote() {
+    if (!lead) return;
+    if ((noteDraft || '') === (lead.notes || '')) return;
+    setSavingNote(true);
+    await fetch(`/api/leads/${lead.id}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ notes: noteDraft || null }) });
+    setSavingNote(false); load();
+  }
 
   useEffect(() => { load(); fetch('/api/users').then(r=>r.json()).then(d=>setUsers(Array.isArray(d)?d:[])); }, [params.id]);
 
@@ -39,7 +49,7 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
   }
 
   async function saveEdit() {
-    await fetch(`/api/leads/${lead.id}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ company_name: editForm.company_name, contact_name: editForm.contact_name||null, contact_email: editForm.contact_email||null, contact_phone: editForm.contact_phone||null, stage: editForm.stage, assigned_to: editForm.assigned_to ? Number(editForm.assigned_to) : null, notes: editForm.notes||null, value: editForm.value||null }) });
+    await fetch(`/api/leads/${lead.id}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ company_name: editForm.company_name, contact_name: editForm.contact_name||null, contact_email: editForm.contact_email||null, contact_phone: editForm.contact_phone||null, stage: editForm.stage, assigned_to: editForm.assigned_to ? Number(editForm.assigned_to) : null, notes: editForm.notes||null, value: editForm.value||null, tags: editForm.tags||null }) });
     setEditMode(false); load();
   }
 
@@ -75,11 +85,14 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
           {!editMode ? (
             <div className="flex items-start justify-between gap-4">
               <div className="flex-1">
-                <div className="flex items-center gap-3 flex-wrap mb-3">
-                  <h1 className="text-2xl font-bold text-slate-900">{lead.company_name}</h1>
+                <div className="flex items-center gap-2 flex-wrap mb-3">
+                  <h1 className="text-2xl font-bold text-slate-900 mr-1">{lead.company_name}</h1>
                   <StageBadge stage={lead.stage}/>
                   {lead.value && <span className="badge bg-emerald-50 text-emerald-700 border-emerald-200">💰 {lead.value}</span>}
                   {lead.source === 'email' && <span className="badge bg-brand-50 text-brand-600 border-brand-200">📧 Email sourced</span>}
+                  {lead.tags && String(lead.tags).split(',').map((t: string) => t.trim()).filter(Boolean).map((tag: string) => (
+                    <span key={tag} className="badge bg-violet-50 text-violet-700 border-violet-200">#{tag}</span>
+                  ))}
                 </div>
                 {/* Progress bar */}
                 <div className="flex items-center gap-3 mb-4">
@@ -107,7 +120,6 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
                   <InfoBox label="Last Updated" value={timeAgo(lead.updated_at)}/>
                   <InfoBox label="Updates" value={String(lead.updates?.length||0)}/>
                 </div>
-                {lead.notes && <div className="mt-4 p-3 bg-amber-50 border border-amber-100 rounded-xl text-sm text-amber-800"><span className="font-semibold">Notes: </span>{lead.notes}</div>}
               </div>
               <div className="flex gap-2 shrink-0">
                 {canEdit && <button onClick={()=>setEditMode(true)} className="btn-secondary"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536M9 13l6.586-6.586a2 2 0 112.828 2.828L11.828 15.83a4 4 0 01-1.897 1.013l-2.796.699.699-2.796A4 4 0 019 13z"/></svg>Edit</button>}
@@ -125,12 +137,40 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
                 <div><label className="label">Deal Value</label><input className="input" value={editForm.value||''} onChange={e=>setEditForm((f:any)=>({...f,value:e.target.value}))}/></div>
                 <div><label className="label">Stage</label><select className="input" value={editForm.stage||'new'} onChange={e=>setEditForm((f:any)=>({...f,stage:e.target.value}))}>{ALL_STAGES.map(s=><option key={s} value={s}>{STAGE_CONFIG[s].label}</option>)}</select></div>
                 <div><label className="label">Assigned To</label><select className="input" value={editForm.assigned_to||''} onChange={e=>setEditForm((f:any)=>({...f,assigned_to:e.target.value}))}><option value="">Unassigned</option>{users.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</select></div>
+                <div className="col-span-2"><label className="label">Tags</label><input className="input" placeholder="warm, decision-maker, urgent" value={editForm.tags||''} onChange={e=>setEditForm((f:any)=>({...f,tags:e.target.value}))}/><p className="text-xs text-slate-400 mt-1">Comma-separated</p></div>
                 <div className="col-span-2"><label className="label">Notes</label><textarea className="input resize-none" rows={2} value={editForm.notes||''} onChange={e=>setEditForm((f:any)=>({...f,notes:e.target.value}))}/></div>
               </div>
               <div className="flex gap-2"><button onClick={saveEdit} className="btn-primary">Save</button><button onClick={()=>setEditMode(false)} className="btn-secondary">Cancel</button></div>
             </div>
           )}
         </div>
+
+        {/* Sticky Notes — context that's always relevant */}
+        {canEdit && (
+          <div className="card p-5 mb-5 bg-amber-50/50 border-amber-100">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">📌</span>
+                <h3 className="font-semibold text-amber-900">Notes & Context</h3>
+              </div>
+              {savingNote && <span className="text-xs text-amber-600">Saving…</span>}
+            </div>
+            <textarea
+              className="w-full bg-transparent text-sm text-amber-900 placeholder-amber-400 resize-none outline-none border-0 focus:ring-0"
+              rows={3}
+              placeholder="Decision-maker, budget cycle, what they care about, anything that helps you remember context…"
+              value={noteDraft}
+              onChange={e => setNoteDraft(e.target.value)}
+              onBlur={saveNote}
+            />
+          </div>
+        )}
+        {!canEdit && lead.notes && (
+          <div className="card p-5 mb-5 bg-amber-50/50 border-amber-100">
+            <div className="flex items-center gap-2 mb-2"><span className="text-xl">📌</span><h3 className="font-semibold text-amber-900">Notes & Context</h3></div>
+            <p className="text-sm text-amber-900 whitespace-pre-wrap">{lead.notes}</p>
+          </div>
+        )}
 
         <div className="grid lg:grid-cols-3 gap-5">
           {/* Add Update */}
