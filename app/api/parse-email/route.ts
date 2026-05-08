@@ -10,8 +10,13 @@ export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   if ((session.user as any).role === 'viewer') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  const { email_text, email_date, assigned_to } = await req.json();
+  const body = await req.json();
+  const { email_text, email_date } = body;
   if (!email_text?.trim()) return NextResponse.json({ error: 'email_text required' }, { status: 400 });
+  const role = (session.user as any).role;
+  const sessionUserId = (session.user as any).id ? Number((session.user as any).id) : null;
+  // Salesmen always assign to themselves; admin/manager can pick anyone
+  const assigned_to = role === 'salesman' ? sessionUserId : body.assigned_to;
   await initSchema();
   const existing = (await getAllLeads() as any[]).map((l: any) => l.company_name);
   const system = `You are a CRM assistant extracting sales leads from salesman emails.

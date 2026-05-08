@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { getAllLeads, createLead, initSchema } from '@/lib/db';
+import { getAllLeads, getMyLeads, createLead, initSchema } from '@/lib/db';
 export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   await initSchema();
+  const role = (session.user as any).role;
+  const userId = (session.user as any).id ? Number((session.user as any).id) : null;
+  if (role === 'salesman' && userId) {
+    return NextResponse.json(await getMyLeads(userId));
+  }
   return NextResponse.json(await getAllLeads());
 }
 export async function POST(req: NextRequest) {

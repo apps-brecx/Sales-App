@@ -246,6 +246,72 @@ export async function deleteEvent(id: number) {
   await getDb().execute({ sql: `DELETE FROM calendar_events WHERE id=?`, args: [id] });
 }
 
+// ─── My (Salesman) ────────────────────────────────────────────────────────────
+export async function getMyLeads(userId: number) {
+  return (await getDb().execute({ sql: `
+    SELECT l.*,u.name as assigned_name,COUNT(lu.id) as update_count,MAX(lu.created_at) as last_update
+    FROM leads l LEFT JOIN users u ON l.assigned_to=u.id
+    LEFT JOIN lead_updates lu ON l.id=lu.lead_id
+    WHERE l.deleted_at IS NULL AND l.assigned_to=?
+    GROUP BY l.id, u.name ORDER BY l.updated_at DESC
+  `, args: [userId] })).rows;
+}
+
+export async function getMyHomeStats(userId: number) {
+  const db = getDb();
+  const [staleLeads, activeLeads, upcomingEvents, recentUpdates, counts] = await Promise.all([
+    db.execute({ sql: `
+      SELECT l.id,l.company_name,l.stage,l.contact_name,l.updated_at,
+        (SELECT MAX(created_at) FROM lead_updates WHERE lead_id=l.id) as last_update
+      FROM leads l
+      WHERE l.deleted_at IS NULL AND l.assigned_to=?
+        AND l.stage NOT IN ('closed_won','closed_lost')
+        AND l.updated_at < NOW() - INTERVAL '7 days'
+      ORDER BY l.updated_at ASC LIMIT 20
+    `, args: [userId] }),
+    db.execute({ sql: `
+      SELECT l.id,l.company_name,l.stage,l.contact_name,l.updated_at
+      FROM leads l
+      WHERE l.deleted_at IS NULL AND l.assigned_to=?
+        AND l.stage NOT IN ('closed_won','closed_lost')
+      ORDER BY l.updated_at DESC
+    `, args: [userId] }),
+    db.execute({ sql: `
+      SELECT e.*,l.company_name as lead_name
+      FROM calendar_events e LEFT JOIN leads l ON e.lead_id=l.id
+      WHERE e.user_id=? AND e.event_date>=TO_CHAR(NOW(), 'YYYY-MM-DD')
+      ORDER BY e.event_date ASC, e.event_time ASC LIMIT 10
+    `, args: [userId] }),
+    db.execute({ sql: `
+      SELECT lu.*,l.company_name
+      FROM lead_updates lu JOIN leads l ON lu.lead_id=l.id
+      WHERE l.deleted_at IS NULL AND l.assigned_to=?
+      ORDER BY lu.created_at DESC LIMIT 8
+    `, args: [userId] }),
+    db.execute({ sql: `
+      SELECT
+        COUNT(*) FILTER (WHERE stage NOT IN ('closed_won','closed_lost')) as active,
+        COUNT(*) FILTER (WHERE stage='closed_won') as won,
+        COUNT(*) FILTER (WHERE stage='closed_lost') as lost,
+        COUNT(*) FILTER (WHERE created_at>=NOW() - INTERVAL '7 days') as new_this_week
+      FROM leads WHERE deleted_at IS NULL AND assigned_to=?
+    `, args: [userId] }),
+  ]);
+  const c: any = counts.rows[0] || {};
+  return {
+    stale_leads: staleLeads.rows,
+    active_leads: activeLeads.rows,
+    upcoming_events: upcomingEvents.rows,
+    recent_updates: recentUpdates.rows,
+    counts: {
+      active: Number(c.active||0),
+      won: Number(c.won||0),
+      lost: Number(c.lost||0),
+      new_this_week: Number(c.new_this_week||0),
+    },
+  };
+}
+
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 export async function getDashboardStats() {
   const db = getDb();
