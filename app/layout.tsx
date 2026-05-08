@@ -3,8 +3,9 @@ import './globals.css';
 import { Providers } from './providers';
 
 export const metadata: Metadata = {
-  title: 'SalesTrack',
-  description: 'Sales pipeline CRM',
+  title: 'Syruvia',
+  description: 'Sales tracker',
+  icons: { icon: '/logo.png' },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

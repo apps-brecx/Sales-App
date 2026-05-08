@@ -16,10 +16,14 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  if ((session.user as any).role === 'viewer') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const role = (session.user as any).role;
+  if (role === 'viewer') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const b = await req.json();
   if (!b.company_name?.trim()) return NextResponse.json({ error: 'company_name required' }, { status: 400 });
   await initSchema();
-  const id = await createLead({ ...b, company_name: b.company_name.trim() });
+  // Salesmen can only assign leads to themselves
+  const sessionUserId = (session.user as any).id ? Number((session.user as any).id) : null;
+  const assigned_to = role === 'salesman' ? sessionUserId : (b.assigned_to ? Number(b.assigned_to) : null);
+  const id = await createLead({ ...b, company_name: b.company_name.trim(), assigned_to });
   return NextResponse.json({ id }, { status: 201 });
 }

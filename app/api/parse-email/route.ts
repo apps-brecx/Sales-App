@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import Anthropic from '@anthropic-ai/sdk';
-import { getAllLeads, findLeadByCompany, createLead, createUpdate, getLeadById, getDb, initSchema } from '@/lib/db';
+import { getAllLeads, findLeadByCompany, createLead, createUpdate, getLeadById, getDb, initSchema, createSubmission, updateSubmissionResults } from '@/lib/db';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -36,6 +36,14 @@ Respond ONLY with valid JSON: {"leads":[...],"summary":"...","email_date":"YYYY-
     catch { return NextResponse.json({ error: 'Failed to parse AI response', raw }, { status: 500 }); }
     const userId = (session.user as any).id ? Number((session.user as any).id) : null;
     const backdateAt: string | null = email_date || parsed.email_date || null;
+
+    // Log the submission so we can show history later
+    let submissionId: number | null = null;
+    if (userId) {
+      const subId = await createSubmission({ user_id: userId, assigned_to: assigned_to ?? null, email_text, email_date: backdateAt, summary: parsed.summary ?? null });
+      submissionId = subId ? Number(subId) : null;
+    }
+
     const results = [];
     for (const item of parsed.leads) {
       if (!item.company_name) continue;
@@ -58,10 +66,15 @@ Respond ONLY with valid JSON: {"leads":[...],"summary":"...","email_date":"YYYY-
           await getDb().execute({ sql: `UPDATE leads SET ${keys.map(k=>`${k}=?`).join(',')}${updatedAtClause} WHERE id=?`, args: updArgs });
         }
       }
-      const uid = await createUpdate({ lead_id: Number(lead.id), user_id: userId, content: item.update_content, stage_from: isNew ? null : lead.stage as string, stage_to: item.stage||lead.stage as string, source: 'email', email_date: backdateAt, created_at: backdateAt });
+      const uid = await createUpdate({ lead_id: Number(lead.id), user_id: userId, content: item.update_content, stage_from: isNew ? null : lead.stage as string, stage_to: item.stage||lead.stage as string, source: 'email', email_date: backdateAt, created_at: backdateAt, email_submission_id: submissionId });
       results.push({ lead_id: Number(lead.id), company_name: item.company_name, is_new: isNew, update_id: Number(uid) });
     }
-    return NextResponse.json({ success: true, summary: parsed.summary, email_date: parsed.email_date, results, leads_created: results.filter(r=>r.is_new).length, leads_updated: results.filter(r=>!r.is_new).length });
+
+    const leadsCreated = results.filter(r=>r.is_new).length;
+    const leadsUpdated = results.filter(r=>!r.is_new).length;
+    if (submissionId) await updateSubmissionResults(submissionId, parsed.summary ?? null, leadsCreated, leadsUpdated);
+
+    return NextResponse.json({ success: true, submission_id: submissionId, summary: parsed.summary, email_date: parsed.email_date, results, leads_created: leadsCreated, leads_updated: leadsUpdated });
   } catch (err: any) {
     return NextResponse.json({ error: err.message||'Unknown error' }, { status: 500 });
   }

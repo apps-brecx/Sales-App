@@ -24,13 +24,11 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-brand-600 rounded-2xl shadow-lg mb-4">
-            <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
-            </svg>
+          <div className="inline-flex items-center justify-center w-20 h-20 bg-white rounded-2xl shadow-lg mb-4 border border-slate-200">
+            <img src="/logo.png" alt="Syruvia" className="w-14 h-14 object-contain"/>
           </div>
-          <h1 className="text-3xl font-bold text-slate-900">SalesTrack</h1>
-          <p className="text-slate-500 text-sm mt-1">Sign in to your workspace</p>
+          <h1 className="text-3xl font-bold text-slate-900">Syruvia</h1>
+          <p className="text-slate-500 text-sm mt-1">Sign in to your sales tracker</p>
         </div>
 
         <div className="card p-8">

@@ -89,17 +89,52 @@ export async function initSchema() {
       key TEXT PRIMARY KEY, value TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS email_submissions (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      assigned_to INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      email_text TEXT NOT NULL,
+      email_date TEXT,
+      summary TEXT,
+      leads_created INTEGER NOT NULL DEFAULT 0,
+      leads_updated INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS feature_requests (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS feature_request_comments (
+      id SERIAL PRIMARY KEY,
+      request_id INTEGER NOT NULL REFERENCES feature_requests(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      content TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
     CREATE INDEX IF NOT EXISTS idx_leads_stage ON leads(stage);
     CREATE INDEX IF NOT EXISTS idx_leads_deleted ON leads(deleted_at);
     CREATE INDEX IF NOT EXISTS idx_updates_lead ON lead_updates(lead_id);
     CREATE INDEX IF NOT EXISTS idx_messages_to ON messages(to_user_id);
-    CREATE INDEX IF NOT EXISTS idx_events_date ON calendar_events(event_date)
+    CREATE INDEX IF NOT EXISTS idx_events_date ON calendar_events(event_date);
+    CREATE INDEX IF NOT EXISTS idx_submissions_user ON email_submissions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_submissions_assigned ON email_submissions(assigned_to);
+    CREATE INDEX IF NOT EXISTS idx_features_user ON feature_requests(user_id);
+    CREATE INDEX IF NOT EXISTS idx_feature_comments_req ON feature_request_comments(request_id)
   `);
 
   for (const col of ['deleted_at TIMESTAMPTZ DEFAULT NULL', 'value TEXT DEFAULT NULL']) {
     const colName = col.split(' ')[0];
     try { await db.execute(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS ${col}`); } catch {}
   }
+  try { await db.execute(`ALTER TABLE lead_updates ADD COLUMN IF NOT EXISTS email_submission_id INTEGER REFERENCES email_submissions(id) ON DELETE SET NULL`); } catch {}
 
   const defaults = [
     ['company_name', 'My Company'], ['currency', 'USD'],
@@ -200,13 +235,14 @@ export async function bulkUpdateLeads(ids: number[], data: Record<string, any>) 
 export async function getUpdatesByLead(leadId: number) {
   return (await getDb().execute({ sql: `SELECT lu.*,u.name as user_name FROM lead_updates lu LEFT JOIN users u ON lu.user_id=u.id WHERE lu.lead_id=? ORDER BY lu.created_at DESC`, args: [leadId] })).rows;
 }
-export async function createUpdate(d: { lead_id: number; user_id?: number|null; content: string; stage_from?: string|null; stage_to?: string|null; source?: string; email_date?: string|null; created_at?: string|null }) {
+export async function createUpdate(d: { lead_id: number; user_id?: number|null; content: string; stage_from?: string|null; stage_to?: string|null; source?: string; email_date?: string|null; created_at?: string|null; email_submission_id?: number|null }) {
   let r;
+  const subId = d.email_submission_id ?? null;
   if (d.created_at) {
-    r = await getDb().execute({ sql: `INSERT INTO lead_updates (lead_id,user_id,content,stage_from,stage_to,source,email_date,created_at) VALUES (?,?,?,?,?,?,?,?::timestamptz) RETURNING id`, args: [d.lead_id, d.user_id??null, d.content, d.stage_from??null, d.stage_to??null, d.source??'manual', d.email_date??null, d.created_at] });
+    r = await getDb().execute({ sql: `INSERT INTO lead_updates (lead_id,user_id,content,stage_from,stage_to,source,email_date,created_at,email_submission_id) VALUES (?,?,?,?,?,?,?,?::timestamptz,?) RETURNING id`, args: [d.lead_id, d.user_id??null, d.content, d.stage_from??null, d.stage_to??null, d.source??'manual', d.email_date??null, d.created_at, subId] });
     await getDb().execute({ sql: `UPDATE leads SET updated_at=GREATEST(updated_at, ?::timestamptz) WHERE id=?`, args: [d.created_at, d.lead_id] });
   } else {
-    r = await getDb().execute({ sql: `INSERT INTO lead_updates (lead_id,user_id,content,stage_from,stage_to,source,email_date) VALUES (?,?,?,?,?,?,?) RETURNING id`, args: [d.lead_id, d.user_id??null, d.content, d.stage_from??null, d.stage_to??null, d.source??'manual', d.email_date??null] });
+    r = await getDb().execute({ sql: `INSERT INTO lead_updates (lead_id,user_id,content,stage_from,stage_to,source,email_date,email_submission_id) VALUES (?,?,?,?,?,?,?,?) RETURNING id`, args: [d.lead_id, d.user_id??null, d.content, d.stage_from??null, d.stage_to??null, d.source??'manual', d.email_date??null, subId] });
     await getDb().execute({ sql: `UPDATE leads SET updated_at=NOW() WHERE id=?`, args: [d.lead_id] });
   }
   return r.lastInsertRowid;
@@ -244,6 +280,107 @@ export async function createEvent(d: { user_id: number; lead_id?: number|null; t
 }
 export async function deleteEvent(id: number) {
   await getDb().execute({ sql: `DELETE FROM calendar_events WHERE id=?`, args: [id] });
+}
+
+// ─── Email Submissions ────────────────────────────────────────────────────────
+export async function createSubmission(d: { user_id: number; assigned_to?: number|null; email_text: string; email_date?: string|null; summary?: string|null; leads_created?: number; leads_updated?: number }) {
+  return (await getDb().execute({
+    sql: `INSERT INTO email_submissions (user_id,assigned_to,email_text,email_date,summary,leads_created,leads_updated) VALUES (?,?,?,?,?,?,?) RETURNING id`,
+    args: [d.user_id, d.assigned_to ?? null, d.email_text, d.email_date ?? null, d.summary ?? null, d.leads_created ?? 0, d.leads_updated ?? 0],
+  })).lastInsertRowid;
+}
+export async function updateSubmissionResults(id: number, summary: string|null, leadsCreated: number, leadsUpdated: number) {
+  await getDb().execute({
+    sql: `UPDATE email_submissions SET summary=?,leads_created=?,leads_updated=? WHERE id=?`,
+    args: [summary, leadsCreated, leadsUpdated, id],
+  });
+}
+export async function getSubmissionsForUser(userId: number, role: string) {
+  // Salesman sees own submissions + ones assigned to them; admin/manager see all
+  const isStaff = role === 'admin' || role === 'manager';
+  const sql = isStaff
+    ? `SELECT s.*,u.name as user_name,a.name as assigned_name
+       FROM email_submissions s
+       LEFT JOIN users u ON s.user_id=u.id
+       LEFT JOIN users a ON s.assigned_to=a.id
+       ORDER BY s.created_at DESC LIMIT 200`
+    : `SELECT s.*,u.name as user_name,a.name as assigned_name
+       FROM email_submissions s
+       LEFT JOIN users u ON s.user_id=u.id
+       LEFT JOIN users a ON s.assigned_to=a.id
+       WHERE s.user_id=? OR s.assigned_to=?
+       ORDER BY s.created_at DESC LIMIT 200`;
+  const args = isStaff ? [] : [userId, userId];
+  return (await getDb().execute({ sql, args })).rows;
+}
+export async function getSubmissionById(id: number) {
+  const sub = (await getDb().execute({
+    sql: `SELECT s.*,u.name as user_name,u.email as user_email,a.name as assigned_name
+          FROM email_submissions s
+          LEFT JOIN users u ON s.user_id=u.id
+          LEFT JOIN users a ON s.assigned_to=a.id
+          WHERE s.id=?`,
+    args: [id],
+  })).rows[0] || null;
+  if (!sub) return null;
+  const updates = (await getDb().execute({
+    sql: `SELECT lu.*,l.company_name,l.stage as lead_stage
+          FROM lead_updates lu JOIN leads l ON lu.lead_id=l.id
+          WHERE lu.email_submission_id=? ORDER BY lu.created_at ASC`,
+    args: [id],
+  })).rows;
+  return { ...sub, updates };
+}
+
+// ─── Feature Requests ─────────────────────────────────────────────────────────
+export async function createFeatureRequest(d: { user_id: number; title: string; description: string }) {
+  return (await getDb().execute({
+    sql: `INSERT INTO feature_requests (user_id,title,description) VALUES (?,?,?) RETURNING id`,
+    args: [d.user_id, d.title, d.description],
+  })).lastInsertRowid;
+}
+export async function getFeatureRequestsForUser(userId: number, role: string) {
+  const isStaff = role === 'admin' || role === 'manager';
+  const sql = isStaff
+    ? `SELECT f.*,u.name as user_name,
+        (SELECT COUNT(*) FROM feature_request_comments c WHERE c.request_id=f.id) as comment_count
+       FROM feature_requests f LEFT JOIN users u ON f.user_id=u.id
+       ORDER BY CASE f.status WHEN 'open' THEN 0 WHEN 'in_progress' THEN 1 WHEN 'done' THEN 2 ELSE 3 END, f.updated_at DESC`
+    : `SELECT f.*,u.name as user_name,
+        (SELECT COUNT(*) FROM feature_request_comments c WHERE c.request_id=f.id) as comment_count
+       FROM feature_requests f LEFT JOIN users u ON f.user_id=u.id
+       WHERE f.user_id=?
+       ORDER BY CASE f.status WHEN 'open' THEN 0 WHEN 'in_progress' THEN 1 WHEN 'done' THEN 2 ELSE 3 END, f.updated_at DESC`;
+  const args = isStaff ? [] : [userId];
+  return (await getDb().execute({ sql, args })).rows;
+}
+export async function getFeatureRequestById(id: number) {
+  const req = (await getDb().execute({
+    sql: `SELECT f.*,u.name as user_name FROM feature_requests f LEFT JOIN users u ON f.user_id=u.id WHERE f.id=?`,
+    args: [id],
+  })).rows[0] || null;
+  if (!req) return null;
+  const comments = (await getDb().execute({
+    sql: `SELECT c.*,u.name as user_name,u.role as user_role
+          FROM feature_request_comments c LEFT JOIN users u ON c.user_id=u.id
+          WHERE c.request_id=? ORDER BY c.created_at ASC`,
+    args: [id],
+  })).rows;
+  return { ...req, comments };
+}
+export async function updateFeatureRequestStatus(id: number, status: string) {
+  await getDb().execute({
+    sql: `UPDATE feature_requests SET status=?,updated_at=NOW() WHERE id=?`,
+    args: [status, id],
+  });
+}
+export async function addFeatureRequestComment(d: { request_id: number; user_id: number; content: string }) {
+  const r = await getDb().execute({
+    sql: `INSERT INTO feature_request_comments (request_id,user_id,content) VALUES (?,?,?) RETURNING id`,
+    args: [d.request_id, d.user_id, d.content],
+  });
+  await getDb().execute({ sql: `UPDATE feature_requests SET updated_at=NOW() WHERE id=?`, args: [d.request_id] });
+  return r.lastInsertRowid;
 }
 
 // ─── My (Salesman) ────────────────────────────────────────────────────────────

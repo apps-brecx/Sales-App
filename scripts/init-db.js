@@ -61,11 +61,43 @@ const SCHEMA = [
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
   `CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS email_submissions (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    assigned_to INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    email_text TEXT NOT NULL,
+    email_date TEXT,
+    summary TEXT,
+    leads_created INTEGER NOT NULL DEFAULT 0,
+    leads_updated INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS feature_requests (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS feature_request_comments (
+    id SERIAL PRIMARY KEY,
+    request_id INTEGER NOT NULL REFERENCES feature_requests(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `ALTER TABLE lead_updates ADD COLUMN IF NOT EXISTS email_submission_id INTEGER REFERENCES email_submissions(id) ON DELETE SET NULL`,
   `CREATE INDEX IF NOT EXISTS idx_leads_stage ON leads(stage)`,
   `CREATE INDEX IF NOT EXISTS idx_leads_deleted ON leads(deleted_at)`,
   `CREATE INDEX IF NOT EXISTS idx_updates_lead ON lead_updates(lead_id)`,
   `CREATE INDEX IF NOT EXISTS idx_messages_to ON messages(to_user_id)`,
   `CREATE INDEX IF NOT EXISTS idx_events_date ON calendar_events(event_date)`,
+  `CREATE INDEX IF NOT EXISTS idx_submissions_user ON email_submissions(user_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_submissions_assigned ON email_submissions(assigned_to)`,
+  `CREATE INDEX IF NOT EXISTS idx_features_user ON feature_requests(user_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_feature_comments_req ON feature_request_comments(request_id)`,
 ];
 
 async function main() {

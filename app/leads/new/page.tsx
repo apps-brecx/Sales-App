@@ -2,17 +2,24 @@
 import { useState, useEffect } from 'react';
 import AppShell from '@/components/AppShell';
 import { useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import { ALL_STAGES, STAGE_CONFIG } from '@/lib/utils';
 import Link from 'next/link';
 
 export default function NewLeadPage() {
   const router = useRouter();
+  const { data: session } = useSession();
+  const role = (session?.user as any)?.role;
+  const isSalesman = role === 'salesman';
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [form, setForm] = useState({ company_name:'', contact_name:'', contact_email:'', contact_phone:'', stage:'new', assigned_to:'', notes:'', value:'' });
 
-  useEffect(() => { fetch('/api/users').then(r=>r.json()).then(d=>setUsers(Array.isArray(d)?d.filter((u:any)=>u.is_active):[])); }, []);
+  useEffect(() => {
+    if (isSalesman) return; // salesmen don't need the user list (auto-assigned to self)
+    fetch('/api/users').then(r=>r.json()).then(d=>setUsers(Array.isArray(d)?d.filter((u:any)=>u.is_active):[]));
+  }, [isSalesman]);
 
   const set = (k: string, v: string) => setForm(f=>({...f,[k]:v}));
 
@@ -52,20 +59,22 @@ export default function NewLeadPage() {
             <div><label className="label">Phone</label><input className="input" placeholder="+1 555 000 0000" value={form.contact_phone} onChange={e=>set('contact_phone',e.target.value)}/></div>
             <div><label className="label">Deal Value</label><input className="input" placeholder="e.g. $5,000" value={form.value} onChange={e=>set('value',e.target.value)}/></div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className={isSalesman ? '' : 'grid grid-cols-2 gap-4'}>
             <div>
               <label className="label">Stage</label>
               <select className="input" value={form.stage} onChange={e=>set('stage',e.target.value)}>
                 {ALL_STAGES.map(s=><option key={s} value={s}>{STAGE_CONFIG[s].label}</option>)}
               </select>
             </div>
-            <div>
-              <label className="label">Assigned To</label>
-              <select className="input" value={form.assigned_to} onChange={e=>set('assigned_to',e.target.value)}>
-                <option value="">Unassigned</option>
-                {users.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
-              </select>
-            </div>
+            {!isSalesman && (
+              <div>
+                <label className="label">Assigned To</label>
+                <select className="input" value={form.assigned_to} onChange={e=>set('assigned_to',e.target.value)}>
+                  <option value="">Unassigned</option>
+                  {users.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
+              </div>
+            )}
           </div>
           <div><label className="label">Notes</label><textarea className="input resize-none" rows={3} placeholder="Any notes…" value={form.notes} onChange={e=>set('notes',e.target.value)}/></div>
 
