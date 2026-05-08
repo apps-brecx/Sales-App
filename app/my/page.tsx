@@ -12,9 +12,15 @@ export default function MyHomePage() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  function load() {
     fetch('/api/my/home').then(r => r.json()).then(d => { setData(d); setLoading(false); }).catch(() => setLoading(false));
-  }, []);
+  }
+  useEffect(load, []);
+
+  async function toggleTask(id: number) {
+    await fetch(`/api/tasks/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ completed: true }) });
+    load();
+  }
 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
@@ -61,6 +67,46 @@ export default function MyHomePage() {
               <KpiCard label="Won" value={data.counts.won} sub={`${winRate}% win rate`} color="emerald" icon="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
               <KpiCard label="Needs Follow-up" value={data.stale_leads.length} sub="no update 7+ days" color="rose" icon="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
             </div>
+
+            {/* Urgent tasks — today + overdue */}
+            {data.urgent_tasks?.length > 0 && (
+              <div className="card p-6 mb-5">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-amber-100 flex items-center justify-center">
+                      <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
+                    </div>
+                    <h2 className="font-semibold text-slate-800">Today & Overdue</h2>
+                    <span className="badge bg-amber-100 text-amber-700 border-amber-200">{data.urgent_tasks.length}</span>
+                  </div>
+                  <Link href="/tasks" className="text-xs text-brand-600 hover:underline">View all →</Link>
+                </div>
+                <div className="space-y-1.5">
+                  {data.urgent_tasks.map((t: any) => {
+                    const todayStr = new Date().toISOString().split('T')[0];
+                    const overdue = t.due_date && t.due_date < todayStr;
+                    return (
+                      <div key={t.id} className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-slate-50 group">
+                        <button onClick={() => toggleTask(t.id)} className="w-5 h-5 rounded border-2 border-slate-300 hover:border-emerald-400 shrink-0 transition-colors"/>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm text-slate-800">{t.title}</div>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-xs ${overdue ? 'text-rose-600 font-semibold' : 'text-slate-400'}`}>
+                              {overdue ? 'Overdue · ' : 'Today · '}{formatDate(t.due_date)}
+                            </span>
+                            {t.lead_id && t.lead_name && (
+                              <Link href={`/leads/${t.lead_id}`} className="text-xs text-brand-600 hover:underline">
+                                · {t.lead_name}
+                              </Link>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Stale leads — urgent */}
             {data.stale_leads.length > 0 && (

@@ -119,6 +119,17 @@ export async function initSchema() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS tasks (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      lead_id INTEGER REFERENCES leads(id) ON DELETE SET NULL,
+      title TEXT NOT NULL,
+      description TEXT,
+      due_date TEXT,
+      completed_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
     CREATE INDEX IF NOT EXISTS idx_leads_stage ON leads(stage);
     CREATE INDEX IF NOT EXISTS idx_leads_deleted ON leads(deleted_at);
     CREATE INDEX IF NOT EXISTS idx_updates_lead ON lead_updates(lead_id);
@@ -127,7 +138,10 @@ export async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_submissions_user ON email_submissions(user_id);
     CREATE INDEX IF NOT EXISTS idx_submissions_assigned ON email_submissions(assigned_to);
     CREATE INDEX IF NOT EXISTS idx_features_user ON feature_requests(user_id);
-    CREATE INDEX IF NOT EXISTS idx_feature_comments_req ON feature_request_comments(request_id)
+    CREATE INDEX IF NOT EXISTS idx_feature_comments_req ON feature_request_comments(request_id);
+    CREATE INDEX IF NOT EXISTS idx_tasks_user ON tasks(user_id);
+    CREATE INDEX IF NOT EXISTS idx_tasks_lead ON tasks(lead_id);
+    CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due_date)
   `);
 
   for (const col of ['deleted_at TIMESTAMPTZ DEFAULT NULL', 'value TEXT DEFAULT NULL']) {
@@ -383,6 +397,47 @@ export async function addFeatureRequestComment(d: { request_id: number; user_id:
   return r.lastInsertRowid;
 }
 
+// ─── Tasks ────────────────────────────────────────────────────────────────────
+export async function getTasksForUser(userId: number, opts?: { includeCompleted?: boolean; leadId?: number }) {
+  const includeCompleted = opts?.includeCompleted ?? false;
+  if (opts?.leadId !== undefined) {
+    return (await getDb().execute({
+      sql: `SELECT t.*, l.company_name as lead_name FROM tasks t LEFT JOIN leads l ON t.lead_id=l.id WHERE t.user_id=? AND t.lead_id=? ORDER BY t.completed_at IS NULL DESC, t.due_date ASC NULLS LAST, t.created_at DESC`,
+      args: [userId, opts.leadId],
+    })).rows;
+  }
+  if (includeCompleted) {
+    return (await getDb().execute({
+      sql: `SELECT t.*, l.company_name as lead_name FROM tasks t LEFT JOIN leads l ON t.lead_id=l.id WHERE t.user_id=? ORDER BY t.completed_at IS NULL DESC, t.due_date ASC NULLS LAST, t.created_at DESC`,
+      args: [userId],
+    })).rows;
+  }
+  return (await getDb().execute({
+    sql: `SELECT t.*, l.company_name as lead_name FROM tasks t LEFT JOIN leads l ON t.lead_id=l.id WHERE t.user_id=? AND t.completed_at IS NULL ORDER BY t.due_date ASC NULLS LAST, t.created_at DESC`,
+    args: [userId],
+  })).rows;
+}
+export async function getTaskById(id: number) {
+  return (await getDb().execute({ sql: `SELECT * FROM tasks WHERE id=?`, args: [id] })).rows[0] || null;
+}
+export async function createTask(d: { user_id: number; lead_id?: number|null; title: string; description?: string|null; due_date?: string|null }) {
+  return (await getDb().execute({
+    sql: `INSERT INTO tasks (user_id,lead_id,title,description,due_date) VALUES (?,?,?,?,?) RETURNING id`,
+    args: [d.user_id, d.lead_id ?? null, d.title, d.description ?? null, d.due_date ?? null],
+  })).lastInsertRowid;
+}
+export async function updateTask(id: number, data: Record<string, any>) {
+  const keys = Object.keys(data);
+  if (keys.length === 0) return;
+  await getDb().execute({
+    sql: `UPDATE tasks SET ${keys.map(k => `${k}=?`).join(',')} WHERE id=?`,
+    args: [...keys.map(k => data[k]), id],
+  });
+}
+export async function deleteTask(id: number) {
+  await getDb().execute({ sql: `DELETE FROM tasks WHERE id=?`, args: [id] });
+}
+
 // ─── My (Salesman) ────────────────────────────────────────────────────────────
 export async function getMyLeads(userId: number) {
   return (await getDb().execute({ sql: `
@@ -396,7 +451,7 @@ export async function getMyLeads(userId: number) {
 
 export async function getMyHomeStats(userId: number) {
   const db = getDb();
-  const [staleLeads, activeLeads, upcomingEvents, recentUpdates, counts] = await Promise.all([
+  const [staleLeads, activeLeads, upcomingEvents, recentUpdates, counts, urgentTasks] = await Promise.all([
     db.execute({ sql: `
       SELECT l.id,l.company_name,l.stage,l.contact_name,l.updated_at,
         (SELECT MAX(created_at) FROM lead_updates WHERE lead_id=l.id) as last_update
@@ -433,6 +488,14 @@ export async function getMyHomeStats(userId: number) {
         COUNT(*) FILTER (WHERE created_at>=NOW() - INTERVAL '7 days') as new_this_week
       FROM leads WHERE deleted_at IS NULL AND assigned_to=?
     `, args: [userId] }),
+    db.execute({ sql: `
+      SELECT t.*, l.company_name as lead_name
+      FROM tasks t LEFT JOIN leads l ON t.lead_id=l.id
+      WHERE t.user_id=? AND t.completed_at IS NULL
+        AND t.due_date IS NOT NULL
+        AND t.due_date <= TO_CHAR(NOW(), 'YYYY-MM-DD')
+      ORDER BY t.due_date ASC LIMIT 10
+    `, args: [userId] }),
   ]);
   const c: any = counts.rows[0] || {};
   return {
@@ -440,6 +503,7 @@ export async function getMyHomeStats(userId: number) {
     active_leads: activeLeads.rows,
     upcoming_events: upcomingEvents.rows,
     recent_updates: recentUpdates.rows,
+    urgent_tasks: urgentTasks.rows,
     counts: {
       active: Number(c.active||0),
       won: Number(c.won||0),
