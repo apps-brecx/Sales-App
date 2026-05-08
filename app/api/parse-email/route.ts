@@ -24,7 +24,7 @@ For each lead/prospect mentioned return:
 Also: summary (1-2 sentences), email_date (YYYY-MM-DD).
 Respond ONLY with valid JSON: {"leads":[...],"summary":"...","email_date":"YYYY-MM-DD"}`;
   try {
-    const res = await anthropic.messages.create({ model: 'claude-sonnet-4-20250514', max_tokens: 2000, system, messages: [{ role: 'user', content: email_text }] });
+    const res = await anthropic.messages.create({ model: 'claude-sonnet-4-6', max_tokens: 2000, system, messages: [{ role: 'user', content: email_text }] });
     const raw = res.content[0].type === 'text' ? res.content[0].text : '';
     let parsed;
     try { parsed = JSON.parse(raw.replace(/```json|```/g, '').trim()); }
