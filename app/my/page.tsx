@@ -6,7 +6,9 @@ import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import { STAGE_CONFIG, ALL_STAGES, timeAgo, formatDate } from '@/lib/utils';
 import { LeadStage } from '@/types';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+
+const PIE_COLORS = ['#6366f1', '#8b5cf6', '#f59e0b', '#f97316', '#10b981', '#f43f5e'];
 
 export default function MyHomePage() {
   const { data: session } = useSession();
@@ -36,6 +38,11 @@ export default function MyHomePage() {
       if (byStage[l.stage]) byStage[l.stage].push(l);
     }
   }
+  const pieData = data ? ALL_STAGES.map((s, i) => ({
+    name: STAGE_CONFIG[s].label,
+    value: Number((data.by_stage || {})[s] || 0),
+    color: PIE_COLORS[i],
+  })).filter(d => d.value > 0) : [];
 
   return (
     <AppShell>
@@ -67,6 +74,60 @@ export default function MyHomePage() {
               <KpiCard label="New This Week" value={data.counts.new_this_week} sub="leads added" color="violet" icon="M12 4v16m8-8H4"/>
               <KpiCard label="Won" value={data.counts.won} sub={`${winRate}% win rate`} color="emerald" icon="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
               <KpiCard label="Needs Follow-up" value={data.stale_leads.length} sub="no update 7+ days" color="rose" icon="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+            </div>
+
+            {/* New Leads chart + Pipeline Breakdown donut */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-5">
+              <div className="card p-6 lg:col-span-2">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="font-semibold text-slate-800">New Leads — Last 30 Days</h2>
+                </div>
+                {data.lead_trend && data.lead_trend.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={200}>
+                    <AreaChart data={data.lead_trend.map((d: any) => ({ day: d.day?.slice(5), count: Number(d.c) }))}>
+                      <defs>
+                        <linearGradient id="myLeadGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#6366f1" stopOpacity={0.18}/>
+                          <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9"/>
+                      <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false}/>
+                      <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} allowDecimals={false}/>
+                      <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', fontSize: 12 }}/>
+                      <Area type="monotone" dataKey="count" stroke="#6366f1" strokeWidth={2} fill="url(#myLeadGrad)"/>
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-48 flex items-center justify-center text-slate-400 text-sm">No new leads yet — start submitting updates</div>
+                )}
+              </div>
+
+              <div className="card p-6">
+                <h2 className="font-semibold text-slate-800 mb-4">Pipeline Breakdown</h2>
+                {pieData.length > 0 ? (
+                  <>
+                    <ResponsiveContainer width="100%" height={140}>
+                      <PieChart>
+                        <Pie data={pieData} cx="50%" cy="50%" innerRadius={40} outerRadius={65} paddingAngle={3} dataKey="value">
+                          {pieData.map((entry, i) => <Cell key={i} fill={entry.color}/>)}
+                        </Pie>
+                        <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', fontSize: 12 }}/>
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="space-y-1.5 mt-2">
+                      {pieData.map((d, i) => (
+                        <div key={i} className="flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full" style={{ background: d.color }}/><span className="text-slate-600">{d.name}</span></div>
+                          <span className="font-semibold text-slate-800">{d.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <div className="h-48 flex items-center justify-center text-slate-400 text-sm">No leads yet</div>
+                )}
+              </div>
             </div>
 
             {/* Urgent tasks — today + overdue */}

@@ -451,7 +451,7 @@ export async function getMyLeads(userId: number) {
 
 export async function getMyHomeStats(userId: number) {
   const db = getDb();
-  const [staleLeads, activeLeads, upcomingEvents, recentUpdates, counts, urgentTasks, trendData, valueRows, wonThisMonth] = await Promise.all([
+  const [staleLeads, activeLeads, upcomingEvents, recentUpdates, counts, urgentTasks, trendData, valueRows, wonThisMonth, leadTrend, byStageRows] = await Promise.all([
     db.execute({ sql: `
       SELECT l.id,l.company_name,l.stage,l.contact_name,l.updated_at,
         (SELECT MAX(created_at) FROM lead_updates WHERE lead_id=l.id) as last_update
@@ -515,7 +515,21 @@ export async function getMyHomeStats(userId: number) {
         AND updated_at >= DATE_TRUNC('month', NOW())
         AND value IS NOT NULL AND value != ''
     `, args: [userId] }),
+    db.execute({ sql: `
+      SELECT TO_CHAR(DATE(created_at), 'YYYY-MM-DD') as day, COUNT(*)::int as c
+      FROM leads
+      WHERE deleted_at IS NULL AND assigned_to=?
+        AND created_at >= NOW() - INTERVAL '30 days'
+      GROUP BY day ORDER BY day ASC
+    `, args: [userId] }),
+    db.execute({ sql: `
+      SELECT stage, COUNT(*)::int as c
+      FROM leads WHERE deleted_at IS NULL AND assigned_to=?
+      GROUP BY stage
+    `, args: [userId] }),
   ]);
+  const by_stage: Record<string, number> = {};
+  for (const r of byStageRows.rows as any[]) by_stage[r.stage] = Number(r.c);
   const c: any = counts.rows[0] || {};
   const stageProb: Record<string, number> = { new: 0.1, contacted: 0.25, follow_up: 0.4, proposal: 0.7 };
   const parseV = (s: any) => { const n = parseFloat(String(s||'').replace(/[^\d.]/g,'')); return isNaN(n) ? 0 : n; };
@@ -534,6 +548,8 @@ export async function getMyHomeStats(userId: number) {
     recent_updates: recentUpdates.rows,
     urgent_tasks: urgentTasks.rows,
     trend_data: trendData.rows,
+    lead_trend: leadTrend.rows,
+    by_stage,
     counts: {
       active: Number(c.active||0),
       won: Number(c.won||0),
@@ -562,7 +578,7 @@ export async function getDashboardStats() {
     db.execute(`SELECT stage,COUNT(*) as c FROM leads WHERE deleted_at IS NULL GROUP BY stage`),
     db.execute(`SELECT lu.*,l.company_name,u.name as user_name FROM lead_updates lu JOIN leads l ON lu.lead_id=l.id LEFT JOIN users u ON lu.user_id=u.id WHERE l.deleted_at IS NULL ORDER BY lu.created_at DESC LIMIT 8`),
     db.execute(`SELECT u.name,COUNT(lu.id) as update_count FROM lead_updates lu JOIN users u ON lu.user_id=u.id WHERE lu.created_at>=NOW() - INTERVAL '7 days' GROUP BY u.name ORDER BY update_count DESC LIMIT 3`),
-    db.execute(`SELECT DATE(created_at) as day,COUNT(*) as c FROM leads WHERE deleted_at IS NULL AND created_at>=NOW() - INTERVAL '30 days' GROUP BY day ORDER BY day ASC`),
+    db.execute(`SELECT TO_CHAR(DATE(created_at), 'YYYY-MM-DD') as day,COUNT(*)::int as c FROM leads WHERE deleted_at IS NULL AND created_at>=NOW() - INTERVAL '30 days' GROUP BY day ORDER BY day ASC`),
   ]);
   const by_stage: Record<string, number> = {};
   byStage.rows.forEach((r: any) => { by_stage[r.stage] = Number(r.c); });
