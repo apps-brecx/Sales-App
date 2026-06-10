@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import AppShell from '@/components/AppShell';
+import AuditQuestionsManager from '@/components/AuditQuestionsManager';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 
@@ -71,6 +72,8 @@ export default function SettingsPage() {
                 ))}
               </div>
             </div>
+
+            <AuditQuestionsManager />
 
             <div className="card p-6 border-rose-100">
               <h2 className="font-semibold text-rose-700 mb-2">Danger Zone</h2>

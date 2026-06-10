@@ -135,11 +135,24 @@ export async function initSchema() {
       cycle_start TEXT NOT NULL,
       lead_id INTEGER NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
       user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-      status_text TEXT NOT NULL,
+      status_text TEXT,
       plan_text TEXT NOT NULL,
+      answers TEXT,
+      prev_plan_status TEXT,
+      prev_plan_note TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       UNIQUE (cycle_start, lead_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS audit_questions (
+      id SERIAL PRIMARY KEY,
+      prompt TEXT NOT NULL,
+      options TEXT NOT NULL DEFAULT '[]',
+      allow_other INTEGER NOT NULL DEFAULT 1,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     CREATE INDEX IF NOT EXISTS idx_leads_stage ON leads(stage);
@@ -166,6 +179,11 @@ export async function initSchema() {
   for (const col of ['last_login_at TIMESTAMPTZ DEFAULT NULL', 'login_count INTEGER NOT NULL DEFAULT 0', 'notifications_seen_at TIMESTAMPTZ DEFAULT NOW()']) {
     try { await db.execute(`ALTER TABLE users ADD COLUMN IF NOT EXISTS ${col}`); } catch {}
   }
+  // Audit answers + plan-execution tracking (added after lead_audits shipped)
+  for (const col of ['answers TEXT', 'prev_plan_status TEXT', 'prev_plan_note TEXT']) {
+    try { await db.execute(`ALTER TABLE lead_audits ADD COLUMN IF NOT EXISTS ${col}`); } catch {}
+  }
+  try { await db.execute(`ALTER TABLE lead_audits ALTER COLUMN status_text DROP NOT NULL`); } catch {}
 
   const defaults = [
     ['company_name', 'My Company'], ['currency', 'USD'],
@@ -173,6 +191,24 @@ export async function initSchema() {
   ];
   for (const [k, v] of defaults) {
     await db.execute({ sql: `INSERT INTO app_settings (key,value) VALUES (?,?) ON CONFLICT (key) DO NOTHING`, args: [k, v] });
+  }
+
+  // Seed a starter set of audit questions once, so the feature works out of the box.
+  const seeded = await db.execute(`SELECT value FROM app_settings WHERE key='audit_questions_seeded'`);
+  if (seeded.rows.length === 0) {
+    const existing = await db.execute(`SELECT COUNT(*)::int as c FROM audit_questions`);
+    if (Number((existing.rows[0] as any)?.c || 0) === 0) {
+      const starter = [
+        { prompt: 'How likely is this lead to close?', options: ['Very likely', 'Likely', 'Uncertain', 'Unlikely'] },
+        { prompt: 'When did you last make contact?', options: ['This week', '1–2 weeks ago', '2–4 weeks ago', 'Over a month ago'] },
+        { prompt: "What's the main blocker right now?", options: ['Price', 'Timing', 'Decision maker', 'Competitor', 'No blocker'] },
+      ];
+      let i = 0;
+      for (const q of starter) {
+        await db.execute({ sql: `INSERT INTO audit_questions (prompt,options,allow_other,sort_order) VALUES (?,?,1,?)`, args: [q.prompt, JSON.stringify(q.options), i++] });
+      }
+    }
+    await db.execute({ sql: `INSERT INTO app_settings (key,value) VALUES ('audit_questions_seeded','1') ON CONFLICT (key) DO NOTHING`, args: [] });
   }
 
   schemaInitialized = true;
@@ -483,27 +519,62 @@ export async function deleteTask(id: number) {
   await getDb().execute({ sql: `DELETE FROM tasks WHERE id=?`, args: [id] });
 }
 
+// ─── Audit Questions (admin-configured) ─────────────────────────────────────────
+export async function getActiveAuditQuestions() {
+  return (await getDb().execute(`SELECT id,prompt,options,allow_other,sort_order FROM audit_questions WHERE is_active=1 ORDER BY sort_order ASC, id ASC`)).rows;
+}
+export async function getAllAuditQuestions() {
+  return (await getDb().execute(`SELECT id,prompt,options,allow_other,sort_order,is_active FROM audit_questions ORDER BY sort_order ASC, id ASC`)).rows;
+}
+export async function createAuditQuestion(d: { prompt: string; options: string[]; allow_other: boolean }) {
+  const next = (await getDb().execute(`SELECT COALESCE(MAX(sort_order),-1)+1 as n FROM audit_questions`)).rows[0];
+  return (await getDb().execute({
+    sql: `INSERT INTO audit_questions (prompt,options,allow_other,sort_order) VALUES (?,?,?,?) RETURNING id`,
+    args: [d.prompt, JSON.stringify(d.options || []), d.allow_other ? 1 : 0, Number((next as any)?.n || 0)],
+  })).lastInsertRowid;
+}
+export async function updateAuditQuestion(id: number, d: { prompt?: string; options?: string[]; allow_other?: boolean; is_active?: boolean }) {
+  const data: Record<string, any> = {};
+  if (d.prompt !== undefined) data.prompt = d.prompt;
+  if (d.options !== undefined) data.options = JSON.stringify(d.options);
+  if (d.allow_other !== undefined) data.allow_other = d.allow_other ? 1 : 0;
+  if (d.is_active !== undefined) data.is_active = d.is_active ? 1 : 0;
+  const keys = Object.keys(data);
+  if (keys.length === 0) return;
+  await getDb().execute({ sql: `UPDATE audit_questions SET ${keys.map(k => `${k}=?`).join(',')} WHERE id=?`, args: [...keys.map(k => data[k]), id] });
+}
+export async function deleteAuditQuestion(id: number) {
+  await getDb().execute({ sql: `DELETE FROM audit_questions WHERE id=?`, args: [id] });
+}
+
 // ─── Lead Audits (bi-weekly review) ─────────────────────────────────────────────
-// Active leads a rep must audit this cycle, each joined with their audit entry (if any).
+// Active leads a rep must audit this cycle, each joined with their current-cycle
+// audit entry (if any) and the plan they wrote in the most recent previous cycle.
 export async function getAuditLeadsForUser(userId: number, cycleStart: string) {
   return (await getDb().execute({ sql: `
     SELECT l.id, l.company_name, l.contact_name, l.stage, l.updated_at,
-           a.id as audit_id, a.status_text, a.plan_text, a.updated_at as audit_updated_at
+           a.id as audit_id, a.answers, a.plan_text, a.prev_plan_status, a.prev_plan_note, a.updated_at as audit_updated_at,
+           p.plan_text as prev_plan_text, p.cycle_start as prev_cycle_start
     FROM leads l
     LEFT JOIN lead_audits a ON a.lead_id=l.id AND a.cycle_start=?
+    LEFT JOIN LATERAL (
+      SELECT plan_text, cycle_start FROM lead_audits pa
+      WHERE pa.lead_id=l.id AND pa.cycle_start < ?
+      ORDER BY pa.cycle_start DESC LIMIT 1
+    ) p ON TRUE
     WHERE l.deleted_at IS NULL AND l.assigned_to=?
       AND l.stage NOT IN ('closed_won','closed_lost')
     ORDER BY (a.id IS NOT NULL) ASC, l.updated_at DESC
-  `, args: [cycleStart, userId] })).rows;
+  `, args: [cycleStart, cycleStart, userId] })).rows;
 }
 
-export async function upsertAudit(d: { cycle_start: string; lead_id: number; user_id: number; status_text: string; plan_text: string }) {
+export async function upsertAudit(d: { cycle_start: string; lead_id: number; user_id: number; answers: any; plan_text: string; prev_plan_status?: string | null; prev_plan_note?: string | null }) {
   await getDb().execute({ sql: `
-    INSERT INTO lead_audits (cycle_start, lead_id, user_id, status_text, plan_text)
-    VALUES (?,?,?,?,?)
+    INSERT INTO lead_audits (cycle_start, lead_id, user_id, answers, plan_text, prev_plan_status, prev_plan_note)
+    VALUES (?,?,?,?,?,?,?)
     ON CONFLICT (cycle_start, lead_id)
-    DO UPDATE SET status_text=EXCLUDED.status_text, plan_text=EXCLUDED.plan_text, user_id=EXCLUDED.user_id, updated_at=NOW()
-  `, args: [d.cycle_start, d.lead_id, d.user_id, d.status_text, d.plan_text] });
+    DO UPDATE SET answers=EXCLUDED.answers, plan_text=EXCLUDED.plan_text, prev_plan_status=EXCLUDED.prev_plan_status, prev_plan_note=EXCLUDED.prev_plan_note, user_id=EXCLUDED.user_id, updated_at=NOW()
+  `, args: [d.cycle_start, d.lead_id, d.user_id, JSON.stringify(d.answers || {}), d.plan_text, d.prev_plan_status ?? null, d.prev_plan_note ?? null] });
 }
 
 // Per-rep completion for a cycle — used by admin/manager to track who's done.

@@ -86,7 +86,7 @@ export default function MyHomePage() {
                 ) : (
                   <>
                     <div className="text-sm font-semibold text-slate-800">{auditPending} {auditPending === 1 ? 'lead needs' : 'leads need'} an audit this cycle</div>
-                    <div className="text-xs text-slate-500">Record a status and plan of action for each — due by {formatDate(auditCycle.due)}.</div>
+                    <div className="text-xs text-slate-500">Answer the quick questions and set a plan for each — due by {formatDate(auditCycle.due)}.</div>
                   </>
                 )}
               </div>
