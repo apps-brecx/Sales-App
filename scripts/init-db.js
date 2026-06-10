@@ -98,6 +98,17 @@ const SCHEMA = [
     completed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
+  `CREATE TABLE IF NOT EXISTS lead_audits (
+    id SERIAL PRIMARY KEY,
+    cycle_start TEXT NOT NULL,
+    lead_id INTEGER NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    status_text TEXT NOT NULL,
+    plan_text TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (cycle_start, lead_id)
+  )`,
   `ALTER TABLE lead_updates ADD COLUMN IF NOT EXISTS email_submission_id INTEGER REFERENCES email_submissions(id) ON DELETE SET NULL`,
   `ALTER TABLE leads ADD COLUMN IF NOT EXISTS tags TEXT DEFAULT NULL`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ DEFAULT NULL`,
@@ -115,6 +126,8 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS idx_tasks_user ON tasks(user_id)`,
   `CREATE INDEX IF NOT EXISTS idx_tasks_lead ON tasks(lead_id)`,
   `CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due_date)`,
+  `CREATE INDEX IF NOT EXISTS idx_audits_cycle ON lead_audits(cycle_start)`,
+  `CREATE INDEX IF NOT EXISTS idx_audits_lead ON lead_audits(lead_id)`,
 ];
 
 async function main() {
