@@ -158,6 +158,7 @@ const SCHEMA = [
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ DEFAULT NULL`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS login_count INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS notifications_seen_at TIMESTAMPTZ DEFAULT NOW()`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS whats_new_seen INTEGER NOT NULL DEFAULT 0`,
   `CREATE INDEX IF NOT EXISTS idx_leads_stage ON leads(stage)`,
   `CREATE INDEX IF NOT EXISTS idx_leads_deleted ON leads(deleted_at)`,
   `CREATE INDEX IF NOT EXISTS idx_updates_lead ON lead_updates(lead_id)`,

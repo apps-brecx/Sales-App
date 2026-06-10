@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import Sidebar from './Sidebar';
 import QuickLog from './QuickLog';
+import Announcements from './Announcements';
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const { data: session, status } = useSession();
@@ -24,6 +25,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <Sidebar />
       <main className="flex-1 overflow-auto">{children}</main>
       {role !== 'viewer' && <QuickLog />}
+      <Announcements />
     </div>
   );
 }
