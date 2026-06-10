@@ -124,6 +124,35 @@ const SCHEMA = [
   `ALTER TABLE lead_audits ADD COLUMN IF NOT EXISTS answers TEXT`,
   `ALTER TABLE lead_audits ADD COLUMN IF NOT EXISTS prev_plan_status TEXT`,
   `ALTER TABLE lead_audits ADD COLUMN IF NOT EXISTS prev_plan_note TEXT`,
+  `CREATE TABLE IF NOT EXISTS audits (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    audit_date TEXT NOT NULL,
+    period_start TEXT,
+    scope TEXT NOT NULL DEFAULT 'all',
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    is_closed INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS audit_targets (
+    id SERIAL PRIMARY KEY,
+    audit_id INTEGER NOT NULL REFERENCES audits(id) ON DELETE CASCADE,
+    lead_id INTEGER NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+    UNIQUE (audit_id, lead_id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS audit_responses (
+    id SERIAL PRIMARY KEY,
+    audit_id INTEGER NOT NULL REFERENCES audits(id) ON DELETE CASCADE,
+    lead_id INTEGER NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    answers TEXT,
+    plan_text TEXT NOT NULL,
+    prev_plan_status TEXT,
+    prev_plan_note TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (audit_id, lead_id)
+  )`,
   `ALTER TABLE lead_updates ADD COLUMN IF NOT EXISTS email_submission_id INTEGER REFERENCES email_submissions(id) ON DELETE SET NULL`,
   `ALTER TABLE leads ADD COLUMN IF NOT EXISTS tags TEXT DEFAULT NULL`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ DEFAULT NULL`,
@@ -143,6 +172,10 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due_date)`,
   `CREATE INDEX IF NOT EXISTS idx_audits_cycle ON lead_audits(cycle_start)`,
   `CREATE INDEX IF NOT EXISTS idx_audits_lead ON lead_audits(lead_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_audit_targets_audit ON audit_targets(audit_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_audit_targets_lead ON audit_targets(lead_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_audit_responses_audit ON audit_responses(audit_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_audit_responses_lead ON audit_responses(lead_id)`,
 ];
 
 async function main() {

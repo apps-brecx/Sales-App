@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import AppShell from '@/components/AppShell';
 import StageBadge from '@/components/StageBadge';
+import AuditForm, { AuditItem, AuditQuestion, parseList } from '@/components/AuditForm';
 import { Lead, LeadUpdate, LeadStage } from '@/types';
 import { ALL_STAGES, STAGE_CONFIG, formatDate, formatDateTime, timeAgo, cn } from '@/lib/utils';
 import { useSession } from 'next-auth/react';
@@ -22,12 +23,21 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
   const [editForm, setEditForm] = useState<any>({});
   const [noteDraft, setNoteDraft] = useState('');
   const [savingNote, setSavingNote] = useState(false);
+  const [auditItems, setAuditItems] = useState<AuditItem[]>([]);
+  const [auditQuestions, setAuditQuestions] = useState<AuditQuestion[]>([]);
 
   const load = () => {
     fetch(`/api/leads/${params.id}`)
       .then(r => { if (!r.ok) throw new Error(); return r.json(); })
       .then(d => { setLead(d); setEditForm(d); setNoteDraft(d.notes || ''); setLoading(false); })
       .catch(() => router.push('/leads'));
+  };
+
+  const loadAudits = () => {
+    fetch(`/api/audits?lead_id=${params.id}`).then(r => r.json()).then(d => {
+      setAuditItems(Array.isArray(d.items) ? d.items : []);
+      setAuditQuestions((d.questions || []).map((q: any) => ({ id: q.id, prompt: q.prompt, options: parseList(q.options), allow_other: !!q.allow_other })));
+    }).catch(() => {});
   };
 
   async function saveNote() {
@@ -38,7 +48,7 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
     setSavingNote(false); load();
   }
 
-  useEffect(() => { load(); fetch('/api/users').then(r=>r.json()).then(d=>setUsers(Array.isArray(d)?d:[])); }, [params.id]);
+  useEffect(() => { load(); loadAudits(); fetch('/api/users').then(r=>r.json()).then(d=>setUsers(Array.isArray(d)?d:[])); }, [params.id]);
 
   async function addUpdate(e: React.FormEvent) {
     e.preventDefault();
@@ -144,6 +154,30 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
             </div>
           )}
         </div>
+
+        {/* Pending / completed audits for this lead */}
+        {auditItems.length > 0 && (
+          <div className="card p-5 mb-5 border-brand-100">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-8 h-8 rounded-xl bg-brand-100 flex items-center justify-center">
+                <svg className="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+              </div>
+              <h3 className="font-semibold text-slate-800">Audit</h3>
+              {auditItems.some(i => !i.response_id) && <span className="badge bg-amber-50 text-amber-700 border-amber-200">{auditItems.filter(i => !i.response_id).length} pending</span>}
+            </div>
+            <div className="space-y-5">
+              {auditItems.map((item, idx) => (
+                <div key={`${item.audit_id}-${item.lead_id}`} className={idx > 0 ? 'pt-5 border-t border-slate-100' : ''}>
+                  <div className="text-xs text-slate-400 mb-3">
+                    {item.title || 'Audit'} · covers {item.period_start ? `${formatDate(item.period_start)} – ` : 'up to '}{formatDate(item.audit_date)}
+                    {item.response_id ? ' · completed' : ''}
+                  </div>
+                  <AuditForm item={item} questions={auditQuestions} onSaved={() => { loadAudits(); load(); }} />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Sticky Notes — context that's always relevant */}
         {canEdit && (

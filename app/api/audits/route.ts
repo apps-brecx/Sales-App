@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { getAuditLeadsForUser, getAuditOverview, getActiveAuditQuestions, upsertAudit, getLeadById, initSchema } from '@/lib/db';
-import { getAuditCycle } from '@/lib/utils';
+import {
+  getAuditInbox, getScheduledAudits, getScheduledAuditDetail, createScheduledAudit,
+  getActiveAuditQuestions, countPendingAuditsForUser, initSchema,
+} from '@/lib/db';
 
 const STAFF = ['admin', 'manager'];
-const PLAN_STATUSES = ['executed', 'partly', 'not'];
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -15,20 +16,29 @@ export async function GET(req: NextRequest) {
   if (!userId) return NextResponse.json({ error: 'No user id' }, { status: 400 });
   await initSchema();
 
-  const cycle = getAuditCycle();
-  const { searchParams } = new URL(req.url);
   const isStaff = STAFF.includes(role);
+  const { searchParams } = new URL(req.url);
 
-  // Admin/manager: team completion overview for the current cycle.
-  if (isStaff && searchParams.get('overview') === '1') {
-    return NextResponse.json({ cycle, overview: await getAuditOverview(cycle.start) });
+  // Admin/manager: list of scheduled audits with completion.
+  if (isStaff && searchParams.get('manage') === '1') {
+    return NextResponse.json({ audits: await getScheduledAudits() });
+  }
+  // Admin/manager: full detail of one audit (targets + responses).
+  const auditIdParam = searchParams.get('audit_id');
+  if (isStaff && auditIdParam) {
+    const detail = await getScheduledAuditDetail(Number(auditIdParam));
+    const questions = await getActiveAuditQuestions();
+    return NextResponse.json({ audit: detail, questions });
   }
 
-  // Staff can inspect a specific rep's audit entries; reps only see their own.
-  const target = searchParams.get('user_id');
-  const forUser = isStaff && target ? Number(target) : userId;
-  const [questions, leads] = await Promise.all([getActiveAuditQuestions(), getAuditLeadsForUser(forUser, cycle.start)]);
-  return NextResponse.json({ cycle, questions, leads });
+  // Default: the current user's audit inbox (paginated). leadId filters to one lead.
+  const leadIdParam = searchParams.get('lead_id');
+  const leadId = leadIdParam ? Number(leadIdParam) : undefined;
+  const page = Math.max(0, Number(searchParams.get('page') || 0));
+  const inbox = await getAuditInbox({ userId, isStaff: isStaff && !!leadId, leadId, page });
+  const questions = await getActiveAuditQuestions();
+  const pending = leadId ? 0 : await countPendingAuditsForUser(userId);
+  return NextResponse.json({ ...inbox, pending, questions });
 }
 
 export async function POST(req: NextRequest) {
@@ -37,42 +47,22 @@ export async function POST(req: NextRequest) {
   const userId = (session.user as any).id ? Number((session.user as any).id) : null;
   const role = (session.user as any).role as string;
   if (!userId) return NextResponse.json({ error: 'No user id' }, { status: 400 });
+  if (role !== 'admin') return NextResponse.json({ error: 'Admin only' }, { status: 403 });
 
-  const cycle = getAuditCycle();
-  if (cycle.pending) return NextResponse.json({ error: 'The audit cycle has not started yet' }, { status: 400 });
-
-  const { lead_id, answers, plan_text, prev_plan_status, prev_plan_note } = await req.json();
-  if (!lead_id) return NextResponse.json({ error: 'lead_id required' }, { status: 400 });
-  if (!plan_text?.trim()) return NextResponse.json({ error: 'Plan of action is required' }, { status: 400 });
-
+  const { audit_date, scope, lead_ids, title } = await req.json();
+  if (!audit_date || !/^\d{4}-\d{2}-\d{2}$/.test(String(audit_date))) {
+    return NextResponse.json({ error: 'A valid audit date is required' }, { status: 400 });
+  }
+  const useScope: 'all' | 'selected' = scope === 'selected' ? 'selected' : 'all';
+  if (useScope === 'selected' && (!Array.isArray(lead_ids) || lead_ids.length === 0)) {
+    return NextResponse.json({ error: 'Select at least one lead' }, { status: 400 });
+  }
   await initSchema();
-
-  // Every active question must be answered.
-  const questions = await getActiveAuditQuestions();
-  const ans: Record<string, string> = answers && typeof answers === 'object' ? answers : {};
-  const cleanAnswers: Record<string, string> = {};
-  for (const q of questions as any[]) {
-    const v = String(ans[String(q.id)] ?? '').trim();
-    if (!v) return NextResponse.json({ error: `Please answer: ${q.prompt}` }, { status: 400 });
-    cleanAnswers[String(q.id)] = v;
-  }
-
-  const lead = await getLeadById(Number(lead_id));
-  if (!lead) return NextResponse.json({ error: 'Lead not found' }, { status: 404 });
-  // Reps may only audit leads assigned to them; admin/manager can audit any.
-  if (!STAFF.includes(role) && Number(lead.assigned_to) !== userId) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
-
-  const planStatus = PLAN_STATUSES.includes(prev_plan_status) ? prev_plan_status : null;
-  await upsertAudit({
-    cycle_start: cycle.start,
-    lead_id: Number(lead_id),
-    user_id: userId,
-    answers: cleanAnswers,
-    plan_text: plan_text.trim(),
-    prev_plan_status: planStatus,
-    prev_plan_note: planStatus && prev_plan_note?.trim() ? prev_plan_note.trim() : null,
+  const res = await createScheduledAudit({
+    audit_date: String(audit_date), scope: useScope,
+    lead_ids: Array.isArray(lead_ids) ? lead_ids : [], created_by: userId,
+    title: title?.trim() || null,
   });
-  return NextResponse.json({ ok: true }, { status: 201 });
+  if (res.target_count === 0) return NextResponse.json({ error: 'No active leads to audit' }, { status: 400 });
+  return NextResponse.json(res, { status: 201 });
 }
