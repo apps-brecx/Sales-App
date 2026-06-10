@@ -155,6 +155,38 @@ export async function initSchema() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS audits (
+      id SERIAL PRIMARY KEY,
+      title TEXT,
+      audit_date TEXT NOT NULL,
+      period_start TEXT,
+      scope TEXT NOT NULL DEFAULT 'all',
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      is_closed INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS audit_targets (
+      id SERIAL PRIMARY KEY,
+      audit_id INTEGER NOT NULL REFERENCES audits(id) ON DELETE CASCADE,
+      lead_id INTEGER NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+      UNIQUE (audit_id, lead_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS audit_responses (
+      id SERIAL PRIMARY KEY,
+      audit_id INTEGER NOT NULL REFERENCES audits(id) ON DELETE CASCADE,
+      lead_id INTEGER NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+      user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      answers TEXT,
+      plan_text TEXT NOT NULL,
+      prev_plan_status TEXT,
+      prev_plan_note TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (audit_id, lead_id)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_leads_stage ON leads(stage);
     CREATE INDEX IF NOT EXISTS idx_leads_deleted ON leads(deleted_at);
     CREATE INDEX IF NOT EXISTS idx_updates_lead ON lead_updates(lead_id);
@@ -168,7 +200,11 @@ export async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_tasks_lead ON tasks(lead_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due_date);
     CREATE INDEX IF NOT EXISTS idx_audits_cycle ON lead_audits(cycle_start);
-    CREATE INDEX IF NOT EXISTS idx_audits_lead ON lead_audits(lead_id)
+    CREATE INDEX IF NOT EXISTS idx_audits_lead ON lead_audits(lead_id);
+    CREATE INDEX IF NOT EXISTS idx_audit_targets_audit ON audit_targets(audit_id);
+    CREATE INDEX IF NOT EXISTS idx_audit_targets_lead ON audit_targets(lead_id);
+    CREATE INDEX IF NOT EXISTS idx_audit_responses_audit ON audit_responses(audit_id);
+    CREATE INDEX IF NOT EXISTS idx_audit_responses_lead ON audit_responses(lead_id)
   `);
 
   for (const col of ['deleted_at TIMESTAMPTZ DEFAULT NULL', 'value TEXT DEFAULT NULL', 'tags TEXT DEFAULT NULL']) {
@@ -547,49 +583,121 @@ export async function deleteAuditQuestion(id: number) {
   await getDb().execute({ sql: `DELETE FROM audit_questions WHERE id=?`, args: [id] });
 }
 
-// ─── Lead Audits (bi-weekly review) ─────────────────────────────────────────────
-// Active leads a rep must audit this cycle, each joined with their current-cycle
-// audit entry (if any) and the plan they wrote in the most recent previous cycle.
-export async function getAuditLeadsForUser(userId: number, cycleStart: string) {
-  return (await getDb().execute({ sql: `
-    SELECT l.id, l.company_name, l.contact_name, l.stage, l.updated_at,
-           a.id as audit_id, a.answers, a.plan_text, a.prev_plan_status, a.prev_plan_note, a.updated_at as audit_updated_at,
-           p.plan_text as prev_plan_text, p.cycle_start as prev_cycle_start
-    FROM leads l
-    LEFT JOIN lead_audits a ON a.lead_id=l.id AND a.cycle_start=?
+// ─── Scheduled Audits (admin-created) ───────────────────────────────────────────
+// An audit covers the period since the previous audit, up to its audit_date, and
+// targets a chosen set of leads (or all active leads). Reps complete it per lead.
+export async function createScheduledAudit(d: { audit_date: string; scope: 'all' | 'selected'; lead_ids?: number[]; created_by: number; title?: string | null }) {
+  const db = getDb();
+  const prev = await db.execute(`SELECT audit_date FROM audits ORDER BY audit_date DESC, id DESC LIMIT 1`);
+  const period_start = (prev.rows[0] as any)?.audit_date ?? null;
+  const id = (await db.execute({
+    sql: `INSERT INTO audits (title,audit_date,period_start,scope,created_by) VALUES (?,?,?,?,?) RETURNING id`,
+    args: [d.title ?? null, d.audit_date, period_start, d.scope, d.created_by],
+  })).lastInsertRowid;
+  let leadIds: number[] = [];
+  if (d.scope === 'all') {
+    const rows = (await db.execute(`SELECT id FROM leads WHERE deleted_at IS NULL AND stage NOT IN ('closed_won','closed_lost')`)).rows;
+    leadIds = rows.map((r: any) => Number(r.id));
+  } else {
+    leadIds = Array.from(new Set((d.lead_ids || []).map(Number).filter(Boolean)));
+  }
+  for (const lid of leadIds) {
+    await db.execute({ sql: `INSERT INTO audit_targets (audit_id,lead_id) VALUES (?,?) ON CONFLICT (audit_id,lead_id) DO NOTHING`, args: [id, lid] });
+  }
+  return { id, target_count: leadIds.length };
+}
+
+export async function getScheduledAudits() {
+  return (await getDb().execute(`
+    SELECT a.id, a.title, a.audit_date, a.period_start, a.scope, a.is_closed, a.created_at, u.name as created_by_name,
+      (SELECT COUNT(*) FROM audit_targets t WHERE t.audit_id=a.id)::int as target_count,
+      (SELECT COUNT(*) FROM audit_responses r WHERE r.audit_id=a.id)::int as done_count
+    FROM audits a LEFT JOIN users u ON a.created_by=u.id
+    ORDER BY a.audit_date DESC, a.id DESC
+  `)).rows;
+}
+
+export async function getScheduledAuditDetail(id: number) {
+  const audit = (await getDb().execute({ sql: `SELECT a.*, u.name as created_by_name FROM audits a LEFT JOIN users u ON a.created_by=u.id WHERE a.id=?`, args: [id] })).rows[0] || null;
+  if (!audit) return null;
+  const targets = (await getDb().execute({ sql: `
+    SELECT t.lead_id, l.company_name, l.contact_name, l.stage, l.assigned_to, au.name as assigned_name,
+      r.id as response_id, r.answers, r.plan_text, r.prev_plan_status, r.prev_plan_note, ru.name as responder_name, r.updated_at as response_updated_at
+    FROM audit_targets t
+    JOIN leads l ON t.lead_id=l.id
+    LEFT JOIN users au ON l.assigned_to=au.id
+    LEFT JOIN audit_responses r ON r.audit_id=t.audit_id AND r.lead_id=t.lead_id
+    LEFT JOIN users ru ON r.user_id=ru.id
+    WHERE t.audit_id=?
+    ORDER BY (r.id IS NOT NULL) ASC, l.company_name ASC
+  `, args: [id] })).rows;
+  return { ...audit, targets };
+}
+
+export async function deleteScheduledAudit(id: number) {
+  await getDb().execute({ sql: `DELETE FROM audits WHERE id=?`, args: [id] });
+}
+export async function setAuditClosed(id: number, closed: boolean) {
+  await getDb().execute({ sql: `UPDATE audits SET is_closed=? WHERE id=?`, args: [closed ? 1 : 0, id] });
+}
+export async function getAuditById(id: number) {
+  return (await getDb().execute({ sql: `SELECT * FROM audits WHERE id=?`, args: [id] })).rows[0] || null;
+}
+export async function isAuditTarget(auditId: number, leadId: number) {
+  return (await getDb().execute({ sql: `SELECT 1 FROM audit_targets WHERE audit_id=? AND lead_id=?`, args: [auditId, leadId] })).rows.length > 0;
+}
+
+// Audit items (audit × lead) for a user. Reps see leads assigned to them; staff
+// can pass a leadId to view a specific lead's items regardless of assignment.
+export async function getAuditInbox(opts: { userId: number; isStaff?: boolean; leadId?: number; page?: number; pageSize?: number }) {
+  const pageSize = opts.pageSize ?? 50;
+  const page = Math.max(0, opts.page ?? 0);
+  const where: string[] = [`a.is_closed=0`, `l.deleted_at IS NULL`];
+  const args: any[] = [];
+  if (!opts.isStaff) { where.push(`l.assigned_to=?`); args.push(opts.userId); }
+  if (opts.leadId) { where.push(`l.id=?`); args.push(opts.leadId); }
+  const whereSql = where.join(' AND ');
+  const total = Number((await getDb().execute({
+    sql: `SELECT COUNT(*)::int as c FROM audit_targets t JOIN audits a ON t.audit_id=a.id JOIN leads l ON t.lead_id=l.id WHERE ${whereSql}`,
+    args,
+  })).rows[0]?.c || 0);
+  const items = (await getDb().execute({ sql: `
+    SELECT a.id as audit_id, a.audit_date, a.period_start, a.title,
+      l.id as lead_id, l.company_name, l.contact_name, l.stage, l.updated_at,
+      r.id as response_id, r.answers, r.plan_text, r.prev_plan_status, r.prev_plan_note, r.updated_at as response_updated_at,
+      p.plan_text as prev_plan_text, p.audit_date as prev_audit_date
+    FROM audit_targets t
+    JOIN audits a ON t.audit_id=a.id
+    JOIN leads l ON t.lead_id=l.id
+    LEFT JOIN audit_responses r ON r.audit_id=a.id AND r.lead_id=l.id
     LEFT JOIN LATERAL (
-      SELECT plan_text, cycle_start FROM lead_audits pa
-      WHERE pa.lead_id=l.id AND pa.cycle_start < ?
-      ORDER BY pa.cycle_start DESC LIMIT 1
+      SELECT ar.plan_text, a2.audit_date FROM audit_responses ar JOIN audits a2 ON ar.audit_id=a2.id
+      WHERE ar.lead_id=l.id AND a2.id <> a.id AND a2.audit_date <= a.audit_date
+      ORDER BY a2.audit_date DESC, a2.id DESC LIMIT 1
     ) p ON TRUE
-    WHERE l.deleted_at IS NULL AND l.assigned_to=?
-      AND l.stage NOT IN ('closed_won','closed_lost')
-    ORDER BY (a.id IS NOT NULL) ASC, l.updated_at DESC
-  `, args: [cycleStart, cycleStart, userId] })).rows;
+    WHERE ${whereSql}
+    ORDER BY (r.id IS NOT NULL) ASC, a.audit_date DESC, l.updated_at DESC
+    LIMIT ${pageSize} OFFSET ${page * pageSize}
+  `, args })).rows;
+  return { items, total, page, pageSize };
 }
 
-export async function upsertAudit(d: { cycle_start: string; lead_id: number; user_id: number; answers: any; plan_text: string; prev_plan_status?: string | null; prev_plan_note?: string | null }) {
+export async function countPendingAuditsForUser(userId: number) {
+  return Number((await getDb().execute({ sql: `
+    SELECT COUNT(*)::int as c
+    FROM audit_targets t JOIN audits a ON t.audit_id=a.id JOIN leads l ON t.lead_id=l.id
+    LEFT JOIN audit_responses r ON r.audit_id=a.id AND r.lead_id=l.id
+    WHERE a.is_closed=0 AND l.deleted_at IS NULL AND l.assigned_to=? AND r.id IS NULL
+  `, args: [userId] })).rows[0]?.c || 0);
+}
+
+export async function upsertAuditResponse(d: { audit_id: number; lead_id: number; user_id: number; answers: any; plan_text: string; prev_plan_status?: string | null; prev_plan_note?: string | null }) {
   await getDb().execute({ sql: `
-    INSERT INTO lead_audits (cycle_start, lead_id, user_id, answers, plan_text, prev_plan_status, prev_plan_note)
+    INSERT INTO audit_responses (audit_id,lead_id,user_id,answers,plan_text,prev_plan_status,prev_plan_note)
     VALUES (?,?,?,?,?,?,?)
-    ON CONFLICT (cycle_start, lead_id)
+    ON CONFLICT (audit_id,lead_id)
     DO UPDATE SET answers=EXCLUDED.answers, plan_text=EXCLUDED.plan_text, prev_plan_status=EXCLUDED.prev_plan_status, prev_plan_note=EXCLUDED.prev_plan_note, user_id=EXCLUDED.user_id, updated_at=NOW()
-  `, args: [d.cycle_start, d.lead_id, d.user_id, JSON.stringify(d.answers || {}), d.plan_text, d.prev_plan_status ?? null, d.prev_plan_note ?? null] });
-}
-
-// Per-rep completion for a cycle — used by admin/manager to track who's done.
-export async function getAuditOverview(cycleStart: string) {
-  return (await getDb().execute({ sql: `
-    SELECT u.id, u.name,
-      COUNT(l.id) FILTER (WHERE l.stage NOT IN ('closed_won','closed_lost'))::int as active_leads,
-      COUNT(a.id) FILTER (WHERE l.stage NOT IN ('closed_won','closed_lost'))::int as audited
-    FROM users u
-    LEFT JOIN leads l ON l.assigned_to=u.id AND l.deleted_at IS NULL
-    LEFT JOIN lead_audits a ON a.lead_id=l.id AND a.cycle_start=?
-    WHERE u.role='salesman' AND u.is_active=1
-    GROUP BY u.id, u.name
-    ORDER BY u.name
-  `, args: [cycleStart] })).rows;
+  `, args: [d.audit_id, d.lead_id, d.user_id, JSON.stringify(d.answers || {}), d.plan_text, d.prev_plan_status ?? null, d.prev_plan_note ?? null] });
 }
 
 // ─── My (Salesman) ────────────────────────────────────────────────────────────

@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import AppShell from '@/components/AppShell';
+import AuditScheduleManager from '@/components/AuditScheduleManager';
 import AuditQuestionsManager from '@/components/AuditQuestionsManager';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
@@ -72,6 +73,8 @@ export default function SettingsPage() {
                 ))}
               </div>
             </div>
+
+            <AuditScheduleManager />
 
             <AuditQuestionsManager />
 

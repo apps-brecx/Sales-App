@@ -22,10 +22,8 @@ export default function MyHomePage() {
   }
   useEffect(load, []);
 
-  const auditCycle = audit?.cycle;
-  const auditLeads: any[] = Array.isArray(audit?.leads) ? audit.leads : [];
-  const auditPending = auditLeads.filter(l => !l.audit_id).length;
-  const showAuditBanner = auditCycle && (auditCycle.pending || (auditLeads.length > 0 && auditPending > 0));
+  const auditPending = Number(audit?.pending || 0);
+  const showAuditBanner = auditPending > 0;
 
   async function toggleTask(id: number) {
     await fetch(`/api/tasks/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ completed: true }) });
@@ -78,17 +76,8 @@ export default function MyHomePage() {
                 <svg className="w-5 h-5 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
               </div>
               <div className="flex-1 min-w-0">
-                {auditCycle.pending ? (
-                  <>
-                    <div className="text-sm font-semibold text-slate-800">Lead audits start {formatDate(auditCycle.start)}</div>
-                    <div className="text-xs text-slate-500">You'll review each active lead's status and plan of action every two weeks.</div>
-                  </>
-                ) : (
-                  <>
-                    <div className="text-sm font-semibold text-slate-800">{auditPending} {auditPending === 1 ? 'lead needs' : 'leads need'} an audit this cycle</div>
-                    <div className="text-xs text-slate-500">Answer the quick questions and set a plan for each — due by {formatDate(auditCycle.due)}.</div>
-                  </>
-                )}
+                <div className="text-sm font-semibold text-slate-800">{auditPending} {auditPending === 1 ? 'lead needs' : 'leads need'} an audit</div>
+                <div className="text-xs text-slate-500">Answer the questions and set a plan of action for each.</div>
               </div>
               <svg className="w-5 h-5 text-brand-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/></svg>
             </div>
