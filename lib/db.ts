@@ -212,7 +212,7 @@ export async function initSchema() {
     try { await db.execute(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS ${col}`); } catch {}
   }
   try { await db.execute(`ALTER TABLE lead_updates ADD COLUMN IF NOT EXISTS email_submission_id INTEGER REFERENCES email_submissions(id) ON DELETE SET NULL`); } catch {}
-  for (const col of ['last_login_at TIMESTAMPTZ DEFAULT NULL', 'login_count INTEGER NOT NULL DEFAULT 0', 'notifications_seen_at TIMESTAMPTZ DEFAULT NOW()']) {
+  for (const col of ['last_login_at TIMESTAMPTZ DEFAULT NULL', 'login_count INTEGER NOT NULL DEFAULT 0', 'notifications_seen_at TIMESTAMPTZ DEFAULT NOW()', 'whats_new_seen INTEGER NOT NULL DEFAULT 0']) {
     try { await db.execute(`ALTER TABLE users ADD COLUMN IF NOT EXISTS ${col}`); } catch {}
   }
   // Audit answers + plan-execution tracking (added after lead_audits shipped)
@@ -268,6 +268,13 @@ export async function getAllUsers() {
 }
 export async function recordLogin(userId: number) {
   await getDb().execute({ sql: `UPDATE users SET last_login_at=NOW(),login_count=login_count+1 WHERE id=?`, args: [userId] });
+}
+export async function getWhatsNewSeen(userId: number) {
+  const r = await getDb().execute({ sql: `SELECT whats_new_seen FROM users WHERE id=?`, args: [userId] });
+  return Number((r.rows[0] as any)?.whats_new_seen || 0);
+}
+export async function setWhatsNewSeen(userId: number, n: number) {
+  await getDb().execute({ sql: `UPDATE users SET whats_new_seen=GREATEST(COALESCE(whats_new_seen,0), ?) WHERE id=?`, args: [n, userId] });
 }
 export async function getNotifications(forUserId: number, limit = 100) {
   return (await getDb().execute({ sql: `
