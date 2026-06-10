@@ -24,6 +24,42 @@ export const ROLE_CONFIG = {
 
 export const EVENT_TYPES = ['Meeting','Call','Follow-up','Demo','Proposal','Other'];
 
+// ─── Audit Cycles ───────────────────────────────────────────────────────────
+// Sales reps audit every active lead (status + plan of action) once every 2 weeks.
+// The first cycle opens on Friday, June 12 2026; every cycle thereafter is 14 days.
+export const AUDIT_ANCHOR = '2026-06-12'; // first audit Friday (UTC)
+export const AUDIT_CYCLE_DAYS = 14;
+
+export type AuditCycle = {
+  index: number;        // 0-based cycle number (-1 before the first cycle opens)
+  start: string;        // 'YYYY-MM-DD' first day of the window (a Friday)
+  end: string;          // 'YYYY-MM-DD' last day of the window (inclusive)
+  due: string;          // 'YYYY-MM-DD' same as end — audits are due by then
+  pending: boolean;     // true when the very first cycle hasn't started yet
+  daysUntilStart: number; // days until the cycle opens (0 once active)
+};
+
+const DAY_MS = 86400000;
+function ymd(ms: number): string { return new Date(ms).toISOString().slice(0, 10); }
+function dayMs(d: string): number { return Date.parse(d + 'T00:00:00Z'); }
+
+export function getAuditCycle(now: Date = new Date()): AuditCycle {
+  const anchor = dayMs(AUDIT_ANCHOR);
+  const today = dayMs(now.toISOString().slice(0, 10));
+  const span = AUDIT_CYCLE_DAYS * DAY_MS;
+  if (today < anchor) {
+    return {
+      index: -1, start: AUDIT_ANCHOR, end: ymd(anchor + (AUDIT_CYCLE_DAYS - 1) * DAY_MS),
+      due: ymd(anchor + (AUDIT_CYCLE_DAYS - 1) * DAY_MS), pending: true,
+      daysUntilStart: Math.round((anchor - today) / DAY_MS),
+    };
+  }
+  const index = Math.floor((today - anchor) / span);
+  const start = anchor + index * span;
+  const end = start + (AUDIT_CYCLE_DAYS - 1) * DAY_MS;
+  return { index, start: ymd(start), end: ymd(end), due: ymd(end), pending: false, daysUntilStart: 0 };
+}
+
 export function formatDate(d: string) { try { return format(parseISO(d), 'MMM d, yyyy'); } catch { return d; } }
 export function formatDateTime(d: string) { try { return format(parseISO(d), 'MMM d, yyyy · h:mm a'); } catch { return d; } }
 export function timeAgo(d: string) { try { return formatDistanceToNow(parseISO(d), { addSuffix: true }); } catch { return d; } }
