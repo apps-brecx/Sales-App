@@ -130,6 +130,18 @@ export async function initSchema() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS lead_audits (
+      id SERIAL PRIMARY KEY,
+      cycle_start TEXT NOT NULL,
+      lead_id INTEGER NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+      user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      status_text TEXT NOT NULL,
+      plan_text TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (cycle_start, lead_id)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_leads_stage ON leads(stage);
     CREATE INDEX IF NOT EXISTS idx_leads_deleted ON leads(deleted_at);
     CREATE INDEX IF NOT EXISTS idx_updates_lead ON lead_updates(lead_id);
@@ -141,7 +153,9 @@ export async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_feature_comments_req ON feature_request_comments(request_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_user ON tasks(user_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_lead ON tasks(lead_id);
-    CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due_date)
+    CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due_date);
+    CREATE INDEX IF NOT EXISTS idx_audits_cycle ON lead_audits(cycle_start);
+    CREATE INDEX IF NOT EXISTS idx_audits_lead ON lead_audits(lead_id)
   `);
 
   for (const col of ['deleted_at TIMESTAMPTZ DEFAULT NULL', 'value TEXT DEFAULT NULL', 'tags TEXT DEFAULT NULL']) {
@@ -467,6 +481,44 @@ export async function updateTask(id: number, data: Record<string, any>) {
 }
 export async function deleteTask(id: number) {
   await getDb().execute({ sql: `DELETE FROM tasks WHERE id=?`, args: [id] });
+}
+
+// ─── Lead Audits (bi-weekly review) ─────────────────────────────────────────────
+// Active leads a rep must audit this cycle, each joined with their audit entry (if any).
+export async function getAuditLeadsForUser(userId: number, cycleStart: string) {
+  return (await getDb().execute({ sql: `
+    SELECT l.id, l.company_name, l.contact_name, l.stage, l.updated_at,
+           a.id as audit_id, a.status_text, a.plan_text, a.updated_at as audit_updated_at
+    FROM leads l
+    LEFT JOIN lead_audits a ON a.lead_id=l.id AND a.cycle_start=?
+    WHERE l.deleted_at IS NULL AND l.assigned_to=?
+      AND l.stage NOT IN ('closed_won','closed_lost')
+    ORDER BY (a.id IS NOT NULL) ASC, l.updated_at DESC
+  `, args: [cycleStart, userId] })).rows;
+}
+
+export async function upsertAudit(d: { cycle_start: string; lead_id: number; user_id: number; status_text: string; plan_text: string }) {
+  await getDb().execute({ sql: `
+    INSERT INTO lead_audits (cycle_start, lead_id, user_id, status_text, plan_text)
+    VALUES (?,?,?,?,?)
+    ON CONFLICT (cycle_start, lead_id)
+    DO UPDATE SET status_text=EXCLUDED.status_text, plan_text=EXCLUDED.plan_text, user_id=EXCLUDED.user_id, updated_at=NOW()
+  `, args: [d.cycle_start, d.lead_id, d.user_id, d.status_text, d.plan_text] });
+}
+
+// Per-rep completion for a cycle — used by admin/manager to track who's done.
+export async function getAuditOverview(cycleStart: string) {
+  return (await getDb().execute({ sql: `
+    SELECT u.id, u.name,
+      COUNT(l.id) FILTER (WHERE l.stage NOT IN ('closed_won','closed_lost'))::int as active_leads,
+      COUNT(a.id) FILTER (WHERE l.stage NOT IN ('closed_won','closed_lost'))::int as audited
+    FROM users u
+    LEFT JOIN leads l ON l.assigned_to=u.id AND l.deleted_at IS NULL
+    LEFT JOIN lead_audits a ON a.lead_id=l.id AND a.cycle_start=?
+    WHERE u.role='salesman' AND u.is_active=1
+    GROUP BY u.id, u.name
+    ORDER BY u.name
+  `, args: [cycleStart] })).rows;
 }
 
 // ─── My (Salesman) ────────────────────────────────────────────────────────────
