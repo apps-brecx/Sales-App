@@ -25,9 +25,10 @@ export const ROLE_CONFIG = {
 export const EVENT_TYPES = ['Meeting','Call','Follow-up','Demo','Proposal','Other'];
 
 // ─── Audit Cycles ───────────────────────────────────────────────────────────
-// Sales reps audit every active lead (status + plan of action) once every 2 weeks.
-// The first cycle opens on Friday, June 12 2026; every cycle thereafter is 14 days.
-export const AUDIT_ANCHOR = '2026-06-12'; // first audit Friday (UTC)
+// Sales reps audit every active lead (questions + plan of action) once every 2 weeks.
+// Anchored so a cycle is currently open for preview (opened 2026-06-09); every
+// cycle thereafter is 14 days.
+export const AUDIT_ANCHOR = '2026-06-09'; // current cycle open date (UTC)
 export const AUDIT_CYCLE_DAYS = 14;
 
 export type AuditCycle = {
