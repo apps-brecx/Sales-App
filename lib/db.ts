@@ -311,7 +311,7 @@ export async function initSchema() {
     try { await db.execute(`ALTER TABLE lead_audits ADD COLUMN IF NOT EXISTS ${col}`); } catch {}
   }
   try { await db.execute(`ALTER TABLE lead_audits ALTER COLUMN status_text DROP NOT NULL`); } catch {}
-  for (const col of ['signature TEXT', 'autopilot_master INTEGER NOT NULL DEFAULT 0', 'include_signature INTEGER NOT NULL DEFAULT 1', "autopilot_mode TEXT DEFAULT 'review'", "autopilot_voice TEXT DEFAULT 'Friendly'", "autopilot_hours TEXT DEFAULT 'business'", 'autopilot_handback INTEGER NOT NULL DEFAULT 1', 'ooo_enabled INTEGER NOT NULL DEFAULT 0', 'ooo_subject TEXT', 'ooo_message TEXT']) {
+  for (const col of ['signature TEXT', 'autopilot_master INTEGER NOT NULL DEFAULT 0', 'include_signature INTEGER NOT NULL DEFAULT 1', "autopilot_mode TEXT DEFAULT 'review'", "autopilot_voice TEXT DEFAULT 'Friendly'", "autopilot_hours TEXT DEFAULT 'business'", 'autopilot_handback INTEGER NOT NULL DEFAULT 1', 'ooo_enabled INTEGER NOT NULL DEFAULT 0', 'ooo_subject TEXT', 'ooo_message TEXT', 'ooo_from TEXT', 'ooo_until TEXT']) {
     try { await db.execute(`ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS ${col}`); } catch {}
   }
   try { await db.execute(`ALTER TABLE email_threads ADD COLUMN IF NOT EXISTS summary TEXT`); } catch {}
@@ -969,7 +969,7 @@ export async function getAutopilotThreads(userId: number) {
   return (await getDb().execute({ sql: `SELECT * FROM email_threads WHERE user_id=? AND autopilot=1 AND archived=0`, args: [userId] })).rows;
 }
 export async function getThreadsNeedingOoo(userId: number) {
-  return (await getDb().execute({ sql: `SELECT * FROM email_threads WHERE user_id=? AND archived=0 AND ooo_replied=0 AND unread>0 ORDER BY last_message_at DESC LIMIT 10`, args: [userId] })).rows;
+  return (await getDb().execute({ sql: `SELECT * FROM email_threads WHERE user_id=? AND archived=0 AND ooo_replied=0 AND unread>0 AND autopilot=0 AND (draft_text IS NULL OR draft_text='') ORDER BY last_message_at DESC LIMIT 20`, args: [userId] })).rows;
 }
 export async function setThreadSummary(userId: number, threadId: number, summary: string) {
   await getDb().execute({ sql: `UPDATE email_threads SET summary=? WHERE user_id=? AND id=?`, args: [summary, userId, threadId] });

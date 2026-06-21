@@ -48,8 +48,9 @@ export async function GET(req: NextRequest) {
     autopilot_hours: acct?.autopilot_hours || 'business',
     autopilot_handback: acct ? acct.autopilot_handback !== 0 : true,
     ooo_enabled: !!acct?.ooo_enabled,
-    ooo_subject: acct?.ooo_subject || '',
     ooo_message: acct?.ooo_message || '',
+    ooo_from: acct?.ooo_from || '',
+    ooo_until: acct?.ooo_until || '',
     unread: acct ? await getUnreadEmailCount(userId) : 0,
     threads, scheduled,
   });

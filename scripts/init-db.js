@@ -241,6 +241,8 @@ const SCHEMA = [
   `ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS ooo_enabled INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS ooo_subject TEXT`,
   `ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS ooo_message TEXT`,
+  `ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS ooo_from TEXT`,
+  `ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS ooo_until TEXT`,
   `CREATE INDEX IF NOT EXISTS idx_email_threads_user ON email_threads(user_id, last_message_at)`,
   `CREATE INDEX IF NOT EXISTS idx_email_messages_thread ON email_messages(thread_id)`,
   `CREATE TABLE IF NOT EXISTS files (

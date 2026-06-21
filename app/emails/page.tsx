@@ -300,7 +300,7 @@ function Reader({ thread, masterOn, onFlag, onReplyAI, onReply, onForward, onTas
         ))}
         {thread.draft_text && (
           <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-3">
-            <div className="text-[11px] font-semibold text-amber-700 uppercase tracking-wide mb-1.5">Autopilot draft — your OK needed</div>
+            <div className="text-[11px] font-semibold text-amber-700 uppercase tracking-wide mb-1.5">Draft reply — review &amp; send</div>
             <div className="text-sm text-slate-700 whitespace-pre-wrap">{thread.draft_text}</div>
             <div className="flex gap-2 mt-2.5">
               <button onClick={() => sendDraft(thread.draft_text)} disabled={!!busy} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-brand-600 text-white">{busy === 'send' ? 'Sending…' : 'Approve & send'}</button>
@@ -423,8 +423,9 @@ function SignatureModal({ data, onClose, onSave }: any) {
   const [sig, setSig] = useState(data.signature || '');
   const [def, setDef] = useState(!!data.include_signature);
   const [oooOn, setOooOn] = useState(!!data.ooo_enabled);
-  const [oooSub, setOooSub] = useState(data.ooo_subject || 'Out of office');
   const [oooMsg, setOooMsg] = useState(data.ooo_message || '');
+  const [oooFrom, setOooFrom] = useState(data.ooo_from || '');
+  const [oooUntil, setOooUntil] = useState(data.ooo_until || '');
   return (
     <ModalShell title="Signature & auto-reply" onClose={onClose}>
       <div className="space-y-4">
@@ -441,13 +442,16 @@ function SignatureModal({ data, onClose, onSave }: any) {
           </div>
           {oooOn ? (
             <div className="space-y-2 mt-2">
-              <input className="input text-sm" value={oooSub} onChange={e => setOooSub(e.target.value)} placeholder="Subject — e.g. Out of office" />
-              <textarea className="input min-h-[90px] text-sm" value={oooMsg} onChange={e => setOooMsg(e.target.value)} placeholder="Thanks for your email — I'm currently out of office and will reply when I return." />
-              <p className="text-xs text-slate-400">Sent automatically, once per conversation, when new email arrives (on the next sync).</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div><label className="text-xs text-slate-500">From</label><input type="date" className="input text-sm" value={oooFrom} onChange={e => setOooFrom(e.target.value)} /></div>
+                <div><label className="text-xs text-slate-500">Until</label><input type="date" className="input text-sm" value={oooUntil} onChange={e => setOooUntil(e.target.value)} /></div>
+              </div>
+              <textarea className="input min-h-[90px] text-sm" value={oooMsg} onChange={e => setOooMsg(e.target.value)} placeholder="Thanks for your email — I'm out of office until [date] and will reply when I return." />
+              <p className="text-xs text-slate-400">While you're away, this is dropped as a <b>draft reply</b> on new conversations (once each) — you review, edit, and send it. Nothing is sent automatically. Leave the dates blank to keep it on until you turn it off.</p>
             </div>
-          ) : <p className="text-xs text-slate-400">Off — incoming email gets no automatic reply.</p>}
+          ) : <p className="text-xs text-slate-400">Off — incoming email gets no draft reply.</p>}
         </div>
-        <div className="flex gap-2 pt-1"><button onClick={() => onSave({ signature: sig, include_signature: def, ooo_enabled: oooOn, ooo_subject: oooSub, ooo_message: oooMsg })} className="btn-primary flex-1 justify-center">Save</button><button onClick={onClose} className="btn-secondary">Cancel</button></div>
+        <div className="flex gap-2 pt-1"><button onClick={() => onSave({ signature: sig, include_signature: def, ooo_enabled: oooOn, ooo_message: oooMsg, ooo_from: oooFrom || null, ooo_until: oooUntil || null })} className="btn-primary flex-1 justify-center">Save</button><button onClick={onClose} className="btn-secondary">Cancel</button></div>
       </div>
     </ModalShell>
   );
