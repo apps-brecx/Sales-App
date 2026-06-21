@@ -14,9 +14,11 @@ export default function NewLeadPage() {
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [form, setForm] = useState({ company_name:'', contact_name:'', contact_email:'', contact_phone:'', stage:'new', assigned_to:'', notes:'', value:'' });
+  const [form, setForm] = useState({ company_name:'', contact_name:'', contact_email:'', contact_phone:'', stage:'new', assigned_to:'', notes:'', value:'', category:'' });
+  const [categories, setCategories] = useState<string[]>([]);
 
   useEffect(() => {
+    fetch('/api/settings').then(r=>r.json()).then(d=>{ try { const a = JSON.parse(d?.lead_categories||'[]'); setCategories(Array.isArray(a)?a:[]); } catch {} }).catch(()=>{});
     if (isSalesman) return; // salesmen don't need the user list (auto-assigned to self)
     fetch('/api/users').then(r=>r.json()).then(d=>setUsers(Array.isArray(d)?d.filter((u:any)=>u.is_active):[]));
   }, [isSalesman]);
@@ -58,6 +60,13 @@ export default function NewLeadPage() {
           <div className="grid grid-cols-2 gap-4">
             <div><label className="label">Phone</label><input className="input" placeholder="+1 555 000 0000" value={form.contact_phone} onChange={e=>set('contact_phone',e.target.value)}/></div>
             <div><label className="label">Deal Value</label><input className="input" placeholder="e.g. $5,000" value={form.value} onChange={e=>set('value',e.target.value)}/></div>
+          </div>
+          <div>
+            <label className="label">Category</label>
+            <select className="input" value={form.category} onChange={e=>set('category',e.target.value)}>
+              <option value="">No category</option>
+              {categories.map(c=><option key={c} value={c}>{c}</option>)}
+            </select>
           </div>
           <div className={isSalesman ? '' : 'grid grid-cols-2 gap-4'}>
             <div>
