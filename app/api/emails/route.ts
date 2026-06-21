@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { getEmailThreads, getEmailThreadFull, getUnreadEmailCount, setThreadFlags, getEmailAccountRaw, initSchema } from '@/lib/db';
+import {
+  getEmailThreads, getEmailThreadFull, getUnreadEmailCount, setThreadFlags, getEmailAccountRaw,
+  getSentThreads, getDraftThreads, getScheduledOutbox, initSchema,
+} from '@/lib/db';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -23,14 +26,28 @@ export async function GET(req: NextRequest) {
   }
 
   const acct: any = await getEmailAccountRaw(userId);
-  const threads = acct ? await getEmailThreads(userId, { tab: searchParams.get('tab') || 'inbox', search: searchParams.get('search') || '' }) : [];
+  const tab = searchParams.get('tab') || 'inbox';
+  let threads: any[] = [];
+  let scheduled: any[] = [];
+  if (acct) {
+    if (tab === 'sent') threads = await getSentThreads(userId);
+    else if (tab === 'drafts') threads = await getDraftThreads(userId);
+    else if (tab === 'scheduled') scheduled = await getScheduledOutbox(userId);
+    else threads = await getEmailThreads(userId, { tab, search: searchParams.get('search') || '' });
+  }
+
   return NextResponse.json({
     configured: !!acct,
-    autopilot_master: !!acct?.autopilot_master,
-    signature: acct?.signature || '',
     email_address: acct?.email_address || '',
     last_synced_at: acct?.last_synced_at || null,
+    signature: acct?.signature || '',
+    include_signature: acct ? acct.include_signature !== 0 : true,
+    autopilot_master: !!acct?.autopilot_master,
+    autopilot_mode: acct?.autopilot_mode || 'review',
+    autopilot_voice: acct?.autopilot_voice || 'Friendly',
+    autopilot_hours: acct?.autopilot_hours || 'business',
+    autopilot_handback: acct ? acct.autopilot_handback !== 0 : true,
     unread: acct ? await getUnreadEmailCount(userId) : 0,
-    threads,
+    threads, scheduled,
   });
 }

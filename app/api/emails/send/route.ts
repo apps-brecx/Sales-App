@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import {
   getEmailAccountRaw, getThreadByKey, upsertThreadForMessage, insertEmailMessage, findLeadByEmail,
-  getEmailThreadFull, setThreadFlags, initSchema,
+  getEmailThreadFull, setThreadFlags, createOutbox, initSchema,
 } from '@/lib/db';
 import { accountToConfig, sendMail } from '@/lib/email';
 
@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
   const userId = (session.user as any).id ? Number((session.user as any).id) : null;
   if (!userId) return NextResponse.json({ error: 'No user id' }, { status: 400 });
 
-  const { to, subject, body, thread_id, include_signature } = await req.json();
+  const { to, subject, body, thread_id, include_signature, schedule_at } = await req.json();
   await initSchema();
 
   const acct: any = await getEmailAccountRaw(userId);
@@ -40,7 +40,17 @@ export async function POST(req: NextRequest) {
   if (!body?.trim()) return NextResponse.json({ error: 'Message body is required' }, { status: 400 });
   if (!cfg.smtp_host && !cfg.imap_host) return NextResponse.json({ error: 'No SMTP host configured' }, { status: 400 });
 
-  const finalBody = include_signature !== false && acct.signature ? `${body}\n\n${acct.signature}` : body;
+  const useSig = include_signature !== false && acct.include_signature !== 0 && acct.signature;
+  const finalBody = useSig ? `${body}\n\n${acct.signature}` : body;
+
+  // Scheduled send — queue it; the next sync delivers anything due.
+  if (schedule_at) {
+    const when = new Date(schedule_at);
+    if (!isNaN(when.getTime()) && when.getTime() > Date.now() + 30000) {
+      await createOutbox({ user_id: userId, thread_id: thread_id ? Number(thread_id) : null, to_addr: recipient, subject: subj || '(no subject)', body: finalBody, send_at: when.toISOString() });
+      return NextResponse.json({ ok: true, scheduled: true });
+    }
+  }
 
   try {
     await sendMail(cfg, { to: recipient, subject: subj || '(no subject)', text: finalBody, inReplyTo });

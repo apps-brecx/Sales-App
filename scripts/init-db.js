@@ -221,6 +221,21 @@ const SCHEMA = [
     imap_uid INTEGER, sent_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
+  `CREATE TABLE IF NOT EXISTS email_outbox (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    thread_id INTEGER REFERENCES email_threads(id) ON DELETE SET NULL,
+    to_addr TEXT NOT NULL, subject TEXT, body TEXT NOT NULL,
+    send_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS signature TEXT`,
+  `ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS autopilot_master INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS include_signature INTEGER NOT NULL DEFAULT 1`,
+  `ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS autopilot_mode TEXT DEFAULT 'review'`,
+  `ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS autopilot_voice TEXT DEFAULT 'Friendly'`,
+  `ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS autopilot_hours TEXT DEFAULT 'business'`,
+  `ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS autopilot_handback INTEGER NOT NULL DEFAULT 1`,
+  `ALTER TABLE email_threads ADD COLUMN IF NOT EXISTS summary TEXT`,
   `CREATE INDEX IF NOT EXISTS idx_email_threads_user ON email_threads(user_id, last_message_at)`,
   `CREATE INDEX IF NOT EXISTS idx_email_messages_thread ON email_messages(thread_id)`,
   `CREATE INDEX IF NOT EXISTS idx_audit_targets_audit ON audit_targets(audit_id)`,

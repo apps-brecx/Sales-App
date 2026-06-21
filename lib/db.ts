@@ -233,6 +233,16 @@ export async function initSchema() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS email_outbox (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      thread_id INTEGER REFERENCES email_threads(id) ON DELETE SET NULL,
+      to_addr TEXT NOT NULL,
+      subject TEXT, body TEXT NOT NULL,
+      send_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
     CREATE INDEX IF NOT EXISTS idx_leads_stage ON leads(stage);
     CREATE INDEX IF NOT EXISTS idx_leads_deleted ON leads(deleted_at);
     CREATE INDEX IF NOT EXISTS idx_updates_lead ON lead_updates(lead_id);
@@ -268,9 +278,10 @@ export async function initSchema() {
     try { await db.execute(`ALTER TABLE lead_audits ADD COLUMN IF NOT EXISTS ${col}`); } catch {}
   }
   try { await db.execute(`ALTER TABLE lead_audits ALTER COLUMN status_text DROP NOT NULL`); } catch {}
-  for (const col of ['signature TEXT', 'autopilot_master INTEGER NOT NULL DEFAULT 0']) {
+  for (const col of ['signature TEXT', 'autopilot_master INTEGER NOT NULL DEFAULT 0', 'include_signature INTEGER NOT NULL DEFAULT 1', "autopilot_mode TEXT DEFAULT 'review'", "autopilot_voice TEXT DEFAULT 'Friendly'", "autopilot_hours TEXT DEFAULT 'business'", 'autopilot_handback INTEGER NOT NULL DEFAULT 1']) {
     try { await db.execute(`ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS ${col}`); } catch {}
   }
+  try { await db.execute(`ALTER TABLE email_threads ADD COLUMN IF NOT EXISTS summary TEXT`); } catch {}
 
   const defaults = [
     ['company_name', 'My Company'], ['currency', 'USD'],
@@ -839,6 +850,34 @@ export async function getUnreadEmailCount(userId: number) {
 }
 export async function getAutopilotThreads(userId: number) {
   return (await getDb().execute({ sql: `SELECT * FROM email_threads WHERE user_id=? AND autopilot=1 AND archived=0`, args: [userId] })).rows;
+}
+export async function setThreadSummary(userId: number, threadId: number, summary: string) {
+  await getDb().execute({ sql: `UPDATE email_threads SET summary=? WHERE user_id=? AND id=?`, args: [summary, userId, threadId] });
+}
+export async function getSentThreads(userId: number) {
+  return (await getDb().execute({ sql: `
+    SELECT t.*, l.company_name as lead_name FROM email_threads t
+    JOIN (SELECT DISTINCT thread_id FROM email_messages WHERE user_id=? AND direction='out') s ON s.thread_id=t.id
+    LEFT JOIN leads l ON t.lead_id=l.id
+    WHERE t.user_id=? ORDER BY t.last_message_at DESC NULLS LAST LIMIT 200`, args: [userId, userId] })).rows;
+}
+export async function getDraftThreads(userId: number) {
+  return (await getDb().execute({ sql: `
+    SELECT t.*, l.company_name as lead_name FROM email_threads t LEFT JOIN leads l ON t.lead_id=l.id
+    WHERE t.user_id=? AND t.draft_text IS NOT NULL AND t.draft_text<>'' ORDER BY t.last_message_at DESC NULLS LAST LIMIT 200`, args: [userId] })).rows;
+}
+// Scheduled-send outbox
+export async function createOutbox(d: { user_id: number; thread_id?: number | null; to_addr: string; subject?: string | null; body: string; send_at: string }) {
+  return (await getDb().execute({ sql: `INSERT INTO email_outbox (user_id,thread_id,to_addr,subject,body,send_at) VALUES (?,?,?,?,?,?::timestamptz) RETURNING id`, args: [d.user_id, d.thread_id ?? null, d.to_addr, d.subject ?? null, d.body, d.send_at] })).lastInsertRowid;
+}
+export async function getScheduledOutbox(userId: number) {
+  return (await getDb().execute({ sql: `SELECT o.*, l.company_name as lead_name FROM email_outbox o LEFT JOIN email_threads t ON o.thread_id=t.id LEFT JOIN leads l ON t.lead_id=l.id WHERE o.user_id=? ORDER BY o.send_at ASC`, args: [userId] })).rows;
+}
+export async function getDueOutbox(userId: number) {
+  return (await getDb().execute({ sql: `SELECT * FROM email_outbox WHERE user_id=? AND send_at<=NOW() ORDER BY send_at ASC LIMIT 20`, args: [userId] })).rows;
+}
+export async function deleteOutbox(id: number) {
+  await getDb().execute({ sql: `DELETE FROM email_outbox WHERE id=?`, args: [id] });
 }
 
 export async function upsertAuditResponse(d: { audit_id: number; lead_id: number; user_id: number; answers: any; plan_text: string; prev_plan_status?: string | null; prev_plan_note?: string | null }) {

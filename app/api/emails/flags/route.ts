@@ -13,11 +13,17 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   await initSchema();
 
-  // Per-user account-level flags (autopilot master switch, signature).
+  // Per-user account-level flags (autopilot settings, signature).
   if (body.account) {
+    const a = body.account;
     const data: Record<string, any> = {};
-    if ('autopilot_master' in body.account) data.autopilot_master = body.account.autopilot_master ? 1 : 0;
-    if ('signature' in body.account) data.signature = String(body.account.signature || '') || null;
+    if ('autopilot_master' in a) data.autopilot_master = a.autopilot_master ? 1 : 0;
+    if ('signature' in a) data.signature = String(a.signature || '') || null;
+    if ('include_signature' in a) data.include_signature = a.include_signature ? 1 : 0;
+    if ('autopilot_mode' in a) data.autopilot_mode = a.autopilot_mode === 'send' ? 'send' : 'review';
+    if ('autopilot_voice' in a) data.autopilot_voice = String(a.autopilot_voice || 'Friendly');
+    if ('autopilot_hours' in a) data.autopilot_hours = a.autopilot_hours === 'any' ? 'any' : 'business';
+    if ('autopilot_handback' in a) data.autopilot_handback = a.autopilot_handback ? 1 : 0;
     if (Object.keys(data).length) await upsertEmailAccount(userId, data);
     return NextResponse.json({ ok: true });
   }

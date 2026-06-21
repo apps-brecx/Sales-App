@@ -4,17 +4,17 @@ import AppShell from '@/components/AppShell';
 import EmailAccountModal from '@/components/EmailAccountModal';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { timeAgo, cn } from '@/lib/utils';
+import { timeAgo, formatDateTime, cn } from '@/lib/utils';
 
 type Thread = {
-  id: number; thread_key: string; lead_id: number | null; lead_name: string | null;
+  id: number; lead_id: number | null; lead_name: string | null;
   counterpart_name: string | null; counterpart_email: string | null; subject: string | null;
   last_message_at: string | null; last_snippet: string | null; unread: number; starred: number; archived: number;
   autopilot: number; auto_mode: string; draft_text: string | null;
 };
-type Message = { id: number; direction: string; from_name: string | null; from_addr: string | null; body_text: string | null; subject: string | null; sent_at: string };
+type Message = { id: number; direction: string; from_name: string | null; from_addr: string | null; body_text: string | null; sent_at: string };
 
-const TABS = [['inbox', 'Inbox'], ['starred', 'Starred'], ['archived', 'Archived']] as const;
+const TABS = [['inbox', 'Inbox'], ['starred', 'Starred'], ['sent', 'Sent'], ['scheduled', 'Scheduled'], ['drafts', 'Drafts'], ['archived', 'Archived']] as const;
 const TONES = ['Friendly', 'Professional', 'Persuasive'];
 
 function EmailsInner() {
@@ -30,7 +30,11 @@ function EmailsInner() {
   const [thread, setThread] = useState<any>(null);
   const [syncing, setSyncing] = useState(false);
   const [acctModal, setAcctModal] = useState(false);
-  const [compose, setCompose] = useState<null | { to: string; subject: string; body: string; thread_id?: number }>(null);
+  const [sigModal, setSigModal] = useState(false);
+  const [autoModal, setAutoModal] = useState(false);
+  const [taskFor, setTaskFor] = useState<any>(null);
+  const [updateFor, setUpdateFor] = useState<any>(null);
+  const [compose, setCompose] = useState<any>(null);
   const didLead = useRef(false);
 
   function load(t = tab, s = search) {
@@ -48,28 +52,20 @@ function EmailsInner() {
     if (!quiet) setActiveId(id);
     fetch(`/api/emails?id=${id}`).then(r => r.json()).then(d => { setThread(d.thread); if (!quiet) load(); }).catch(() => {});
   }
-
-  useEffect(() => { load().then(() => sync()); /* eslint-disable-next-line */ }, []);
-  useEffect(() => { load(tab, search); /* eslint-disable-next-line */ }, [tab]);
-
-  // If arriving from a lead, prefill search + compose recipient.
-  useEffect(() => {
-    if (leadId && !didLead.current) {
-      didLead.current = true;
-      fetch(`/api/leads/${leadId}`).then(r => r.json()).then(l => {
-        if (l?.contact_email) { setSearch(l.contact_email); load(tab, l.contact_email); }
-      }).catch(() => {});
-    }
-  }, [leadId]); // eslint-disable-line
-
   async function flag(thread_id: number, patch: any) {
     await fetch('/api/emails/flags', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ thread_id, ...patch }) });
     load(); if (activeId === thread_id) openThread(thread_id, true);
   }
-  async function setMaster(on: boolean) {
-    await fetch('/api/emails/flags', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ account: { autopilot_master: on } }) });
+  async function saveAccount(patch: any) {
+    await fetch('/api/emails/flags', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ account: patch }) });
     load();
   }
+
+  useEffect(() => { load().then(() => sync()); /* eslint-disable-next-line */ }, []);
+  useEffect(() => { load(tab, search); /* eslint-disable-next-line */ }, [tab]);
+  useEffect(() => {
+    if (leadId && !didLead.current) { didLead.current = true; fetch(`/api/leads/${leadId}`).then(r => r.json()).then(l => { if (l?.contact_email) { setSearch(l.contact_email); load(tab, l.contact_email); } }).catch(() => {}); }
+  }, [leadId]); // eslint-disable-line
 
   if (loading) return <div className="p-8"><div className="card p-10 h-60 animate-pulse bg-slate-100" /></div>;
 
@@ -90,119 +86,147 @@ function EmailsInner() {
   }
 
   const threads: Thread[] = Array.isArray(data.threads) ? data.threads : [];
+  const scheduled: any[] = Array.isArray(data.scheduled) ? data.scheduled : [];
 
   return (
-    <div className="p-6 lg:p-8 flex flex-col h-[calc(100vh-0px)]">
+    <div className="p-6 lg:p-8 flex flex-col h-screen">
       {/* Header */}
       <div className="flex items-start justify-between gap-3 flex-wrap mb-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Email</h1>
-          <p className="text-sm text-slate-500 mt-0.5">Connected to {data.email_address} · {data.last_synced_at ? `synced ${timeAgo(data.last_synced_at)}` : 'not synced yet'}</p>
+          <p className="text-sm text-slate-500 mt-0.5">{data.email_address} · {data.last_synced_at ? `synced ${timeAgo(data.last_synced_at)}` : 'not synced yet'}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <button onClick={() => setMaster(!data.autopilot_master)} className={cn('flex items-center gap-2 pl-2.5 pr-3 py-2 rounded-xl border text-sm font-semibold', data.autopilot_master ? 'border-brand-200 bg-brand-50 text-brand-700' : 'border-slate-200 bg-white text-slate-500')}>
-            <span className={cn('relative inline-flex h-5 w-9 rounded-full transition-colors', data.autopilot_master ? 'bg-brand-600' : 'bg-slate-300')}><span className="absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform" style={{ transform: data.autopilot_master ? 'translateX(16px)' : 'translateX(0)' }} /></span>
+          <button onClick={() => saveAccount({ autopilot_master: !data.autopilot_master })} className={cn('flex items-center gap-2 pl-2.5 pr-3 py-2 rounded-xl border text-sm font-semibold', data.autopilot_master ? 'border-brand-200 bg-brand-50 text-brand-700' : 'border-slate-200 bg-white text-slate-500')}>
+            <span className={cn('relative inline-flex h-5 w-9 rounded-full', data.autopilot_master ? 'bg-brand-600' : 'bg-slate-300')}><span className="absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform" style={{ transform: data.autopilot_master ? 'translateX(16px)' : 'translateX(0)' }} /></span>
             AI Autopilot
           </button>
+          <button onClick={() => setAutoModal(true)} className="p-2 rounded-xl text-slate-400 hover:bg-slate-100" title="Autopilot settings"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z"/></svg></button>
+          <button onClick={() => setSigModal(true)} className="p-2 rounded-xl text-slate-400 hover:bg-slate-100" title="Email signature"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg></button>
           <button onClick={sync} className="btn-secondary" disabled={syncing}><svg className={cn('w-4 h-4', syncing && 'animate-spin')} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>{syncing ? 'Syncing…' : 'Sync'}</button>
           <button onClick={() => setCompose({ to: '', subject: '', body: '' })} className="btn-primary"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536M9 13l6.586-6.586a2 2 0 112.828 2.828L11.828 15.83a4 4 0 01-1.897 1.013l-2.796.699.699-2.796A4 4 0 019 13z"/></svg>Compose</button>
-          <button onClick={() => setAcctModal(true)} className="p-2 rounded-xl text-slate-400 hover:bg-slate-100" title="Email settings"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065zM15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg></button>
+          <button onClick={() => setAcctModal(true)} className="p-2 rounded-xl text-slate-400 hover:bg-slate-100" title="Email account"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065zM15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg></button>
         </div>
       </div>
 
-      {/* Tabs + search + view toggle */}
+      {/* Tabs + search + view */}
       <div className="flex items-center gap-3 flex-wrap mb-4">
-        <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
+        <div className="flex gap-1 bg-slate-100 p-1 rounded-xl flex-wrap">
           {TABS.map(([k, label]) => (
-            <button key={k} onClick={() => setTab(k)} className={cn('px-3.5 py-1.5 rounded-lg text-xs font-semibold', tab === k ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700')}>{label}{k === 'inbox' && data.unread > 0 && <span className="ml-1 text-brand-600">{data.unread}</span>}</button>
+            <button key={k} onClick={() => { setTab(k); setActiveId(null); setThread(null); }} className={cn('px-3 py-1.5 rounded-lg text-xs font-semibold', tab === k ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700')}>{label}{k === 'inbox' && data.unread > 0 && <span className="ml-1 text-brand-600">{data.unread}</span>}</button>
           ))}
         </div>
-        <div className="relative">
+        {tab !== 'scheduled' && <div className="relative">
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
           <input className="w-56 pl-9 pr-3 py-2 rounded-xl border border-slate-200 text-sm outline-none focus:border-brand-400" placeholder="Search email…" value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') load(tab, search); }} />
-        </div>
-        <div className="ml-auto flex gap-1 bg-slate-100 p-1 rounded-xl">
+        </div>}
+        {tab !== 'scheduled' && <div className="ml-auto flex gap-1 bg-slate-100 p-1 rounded-xl">
           <button onClick={() => setView('list')} className={cn('p-1.5 rounded-lg', view === 'list' ? 'bg-white shadow-sm text-slate-700' : 'text-slate-400')} title="List view"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16"/></svg></button>
           <button onClick={() => setView('table')} className={cn('p-1.5 rounded-lg', view === 'table' ? 'bg-white shadow-sm text-slate-700' : 'text-slate-400')} title="Table view"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18M3 6h18M3 18h18"/></svg></button>
-        </div>
+        </div>}
       </div>
 
-      {/* Split */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-5 min-h-0">
-        <div className={cn('card overflow-hidden flex flex-col', view === 'table' ? 'lg:col-span-12' : 'lg:col-span-4', activeId && view === 'list' ? 'hidden lg:flex' : '')}>
-          <div className="flex-1 overflow-y-auto">
-            {threads.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center text-center p-10 text-slate-400">
-                <svg className="w-10 h-10 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
-                <div className="text-sm font-medium text-slate-500">{syncing ? 'Syncing your inbox…' : 'Nothing here yet'}</div>
-                {!syncing && <div className="text-xs mt-1">Hit Sync to pull your latest email.</div>}
-              </div>
-            ) : view === 'table' ? (
-              <table className="w-full text-sm">
-                <thead className="text-xs text-slate-400 border-b border-slate-100"><tr><th className="text-left font-medium px-4 py-2">From</th><th className="text-left font-medium px-4 py-2">Subject</th><th className="text-left font-medium px-4 py-2">Lead</th><th className="text-right font-medium px-4 py-2">When</th></tr></thead>
-                <tbody>
+      {tab === 'scheduled' ? (
+        <div className="card p-2 overflow-y-auto">
+          {scheduled.length === 0 ? <div className="p-10 text-center text-sm text-slate-400">Nothing scheduled. Use “Schedule send” in compose.</div> : (
+            <div className="divide-y divide-slate-50">
+              {scheduled.map(o => (
+                <div key={o.id} className="p-4 flex items-center gap-3">
+                  <svg className="w-5 h-5 text-amber-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                  <div className="flex-1 min-w-0"><div className="text-sm font-medium text-slate-800 truncate">{o.subject || '(no subject)'} → {o.to_addr}</div><div className="text-xs text-slate-400">Sends {formatDateTime(o.send_at)}{o.lead_name ? ` · ${o.lead_name}` : ''}</div></div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-5 min-h-0">
+          <div className={cn('card overflow-hidden flex flex-col', view === 'table' ? 'lg:col-span-12' : 'lg:col-span-4', activeId && view === 'list' ? 'hidden lg:flex' : '')}>
+            <div className="flex-1 overflow-y-auto">
+              {threads.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-center p-10 text-slate-400">
+                  <svg className="w-10 h-10 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                  <div className="text-sm font-medium text-slate-500">{syncing ? 'Syncing your inbox…' : 'Nothing here yet'}</div>
+                </div>
+              ) : view === 'table' ? (
+                <table className="w-full text-sm">
+                  <thead className="text-xs text-slate-400 border-b border-slate-100"><tr><th className="text-left font-medium px-4 py-2">From</th><th className="text-left font-medium px-4 py-2">Subject</th><th className="text-left font-medium px-4 py-2">Lead</th><th className="text-right font-medium px-4 py-2">When</th></tr></thead>
+                  <tbody>
+                    {threads.map(t => (
+                      <tr key={t.id} onClick={() => openThread(t.id)} className={cn('cursor-pointer border-b border-slate-50 hover:bg-slate-50', t.unread && 'font-semibold', activeId === t.id && 'bg-brand-50')}>
+                        <td className="px-4 py-2.5 whitespace-nowrap">{t.counterpart_name || t.counterpart_email}</td>
+                        <td className="px-4 py-2.5"><span className="text-slate-700">{t.subject || '(no subject)'}</span> <span className="text-slate-400 font-normal">— {t.last_snippet}</span></td>
+                        <td className="px-4 py-2.5 whitespace-nowrap">{t.lead_name ? <Link href={`/leads/${t.lead_id}`} className="text-brand-600 hover:underline">{t.lead_name}</Link> : <span className="text-slate-300">—</span>}</td>
+                        <td className="px-4 py-2.5 text-right text-xs text-slate-400 whitespace-nowrap">{t.last_message_at ? timeAgo(t.last_message_at) : ''}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="divide-y divide-slate-50">
                   {threads.map(t => (
-                    <tr key={t.id} onClick={() => openThread(t.id)} className={cn('cursor-pointer border-b border-slate-50 hover:bg-slate-50', t.unread && 'font-semibold', activeId === t.id && 'bg-brand-50')}>
-                      <td className="px-4 py-2.5 whitespace-nowrap">{t.counterpart_name || t.counterpart_email}</td>
-                      <td className="px-4 py-2.5"><span className="text-slate-700">{t.subject || '(no subject)'}</span> <span className="text-slate-400 font-normal">— {t.last_snippet}</span></td>
-                      <td className="px-4 py-2.5 whitespace-nowrap">{t.lead_name ? <Link href={`/leads/${t.lead_id}`} className="text-brand-600 hover:underline">{t.lead_name}</Link> : <span className="text-slate-300">—</span>}</td>
-                      <td className="px-4 py-2.5 text-right text-xs text-slate-400 whitespace-nowrap">{t.last_message_at ? timeAgo(t.last_message_at) : ''}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : (
-              <div className="divide-y divide-slate-50">
-                {threads.map(t => (
-                  <div key={t.id} onClick={() => openThread(t.id)} className={cn('p-4 cursor-pointer hover:bg-slate-50 group', activeId === t.id && 'bg-brand-50', t.unread && 'bg-brand-50/40')}>
-                    <div className="flex items-start gap-3">
-                      <button onClick={e => { e.stopPropagation(); flag(t.id, { starred: !t.starred }); }} className={cn('mt-0.5 shrink-0', t.starred ? 'text-amber-400' : 'text-slate-300 hover:text-amber-300')}><svg className="w-4 h-4" fill={t.starred ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.196-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118L2.05 9.797c-.783-.57-.38-1.81.588-1.81h4.915a1 1 0 00.95-.69l1.519-4.674z"/></svg></button>
-                      <div className="w-9 h-9 rounded-xl bg-brand-100 text-brand-700 flex items-center justify-center text-xs font-bold shrink-0">{(t.counterpart_name || t.counterpart_email || '?')[0]?.toUpperCase()}</div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          {!!t.unread && <span className="w-1.5 h-1.5 rounded-full bg-brand-500 shrink-0" />}
-                          <span className="text-sm font-semibold text-slate-800 truncate">{t.counterpart_name || t.counterpart_email}</span>
-                          <span className="ml-auto text-[11px] text-slate-400 shrink-0">{t.last_message_at ? timeAgo(t.last_message_at) : ''}</span>
-                        </div>
-                        <div className="text-sm font-medium text-slate-700 truncate mt-0.5">{t.subject || '(no subject)'}</div>
-                        <div className="text-xs text-slate-400 line-clamp-1 mt-0.5">{t.last_snippet}</div>
-                        <div className="flex items-center gap-1.5 mt-1.5">
-                          {t.lead_name && <Link onClick={e => e.stopPropagation()} href={`/leads/${t.lead_id}`} className="inline-flex items-center gap-1 text-[10px] font-medium text-brand-600 bg-brand-50 border border-brand-200 rounded-full px-1.5 py-0.5">🔗 {t.lead_name}</Link>}
-                          {!!t.autopilot && data.autopilot_master && <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-violet-600 bg-violet-50 border border-violet-200 rounded-full px-1.5 py-0.5">✨ Autopilot</span>}
-                          {t.draft_text && <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 border border-amber-200 rounded-full px-1.5 py-0.5">Draft ready</span>}
+                    <div key={t.id} onClick={() => openThread(t.id)} className={cn('p-4 cursor-pointer hover:bg-slate-50', activeId === t.id && 'bg-brand-50', t.unread && 'bg-brand-50/40')}>
+                      <div className="flex items-start gap-3">
+                        <button onClick={e => { e.stopPropagation(); flag(t.id, { starred: !t.starred }); }} className={cn('mt-0.5 shrink-0', t.starred ? 'text-amber-400' : 'text-slate-300 hover:text-amber-300')}><svg className="w-4 h-4" fill={t.starred ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.196-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118L2.05 9.797c-.783-.57-.38-1.81.588-1.81h4.915a1 1 0 00.95-.69l1.519-4.674z"/></svg></button>
+                        <div className="w-9 h-9 rounded-xl bg-brand-100 text-brand-700 flex items-center justify-center text-xs font-bold shrink-0">{(t.counterpart_name || t.counterpart_email || '?')[0]?.toUpperCase()}</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            {!!t.unread && <span className="w-1.5 h-1.5 rounded-full bg-brand-500 shrink-0" />}
+                            <span className="text-sm font-semibold text-slate-800 truncate">{t.counterpart_name || t.counterpart_email}</span>
+                            <span className="ml-auto text-[11px] text-slate-400 shrink-0">{t.last_message_at ? timeAgo(t.last_message_at) : ''}</span>
+                          </div>
+                          <div className="text-sm font-medium text-slate-700 truncate mt-0.5">{t.subject || '(no subject)'}</div>
+                          <div className="text-xs text-slate-400 line-clamp-1 mt-0.5">{t.last_snippet}</div>
+                          <div className="flex items-center gap-1.5 mt-1.5">
+                            {t.lead_name && <Link onClick={e => e.stopPropagation()} href={`/leads/${t.lead_id}`} className="inline-flex items-center gap-1 text-[10px] font-medium text-brand-600 bg-brand-50 border border-brand-200 rounded-full px-1.5 py-0.5">🔗 {t.lead_name}</Link>}
+                            {!!t.autopilot && data.autopilot_master && <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-violet-600 bg-violet-50 border border-violet-200 rounded-full px-1.5 py-0.5">✨ Autopilot</span>}
+                            {t.draft_text && <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 border border-amber-200 rounded-full px-1.5 py-0.5">Draft ready</span>}
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
+
+          {view === 'list' && (
+            <div className={cn('card overflow-hidden flex-col lg:col-span-8', activeId ? 'flex' : 'hidden lg:flex')}>
+              {!thread ? <div className="flex-1 flex items-center justify-center text-sm text-slate-400">Select a conversation</div> : (
+                <Reader thread={thread} masterOn={data.autopilot_master} onFlag={flag}
+                  onForward={() => { const last = [...(thread.messages || [])].reverse()[0]; setCompose({ to: '', subject: `Fwd: ${(thread.subject || '').replace(/^(Re:|Fwd:)\s*/i, '')}`, body: `\n\n---------- Forwarded ----------\nFrom: ${last?.from_name || last?.from_addr}\n\n${last?.body_text || ''}` }); }}
+                  onTask={() => setTaskFor(thread)} onUpdate={() => setUpdateFor(thread)}
+                  onBack={() => { setActiveId(null); setThread(null); }} onSent={() => { openThread(thread.id, true); load(); }} />
+              )}
+            </div>
+          )}
         </div>
+      )}
 
-        {/* Reader */}
-        {view === 'list' && (
-          <div className={cn('card overflow-hidden flex-col lg:col-span-8', activeId ? 'flex' : 'hidden lg:flex')}>
-            {!thread ? (
-              <div className="flex-1 flex items-center justify-center text-sm text-slate-400">Select a conversation</div>
-            ) : (
-              <Reader thread={thread} masterOn={data.autopilot_master} onFlag={flag} onReply={() => setCompose({ to: thread.counterpart_email, subject: thread.subject?.startsWith('Re:') ? thread.subject : `Re: ${thread.subject || ''}`.trim(), body: '', thread_id: thread.id })} onBack={() => { setActiveId(null); setThread(null); }} onSent={() => { openThread(thread.id, true); load(); }} />
-            )}
-          </div>
-        )}
-      </div>
-
-      {compose && <Compose initial={compose} onClose={() => setCompose(null)} onSent={() => { setCompose(null); load(); if (activeId) openThread(activeId, true); }} />}
+      {compose && <Compose initial={compose} sig={{ on: data.include_signature }} onClose={() => setCompose(null)} onSent={() => { setCompose(null); load(); if (activeId) openThread(activeId, true); }} />}
       {acctModal && <EmailAccountModal initial={{ ...data, configured: true }} onClose={() => setAcctModal(false)} onSaved={() => { setAcctModal(false); load(); }} />}
+      {sigModal && <SignatureModal data={data} onClose={() => setSigModal(false)} onSave={(p: any) => { saveAccount(p); setSigModal(false); }} />}
+      {autoModal && <AutopilotModal data={data} onClose={() => setAutoModal(false)} onSave={(p: any) => { saveAccount(p); setAutoModal(false); }} />}
+      {taskFor && <TaskModal thread={taskFor} onClose={() => setTaskFor(null)} />}
+      {updateFor && <UpdateModal thread={updateFor} onClose={() => setUpdateFor(null)} />}
     </div>
   );
 }
 
-function Reader({ thread, masterOn, onFlag, onReply, onBack, onSent }: any) {
+function Reader({ thread, masterOn, onFlag, onForward, onTask, onUpdate, onBack, onSent }: any) {
   const [reply, setReply] = useState('');
   const [tone, setTone] = useState('Friendly');
   const [busy, setBusy] = useState('');
+  const [summary, setSummary] = useState<string | null>(thread.summary || null);
   const messages: Message[] = thread.messages || [];
+
+  useEffect(() => {
+    setSummary(thread.summary || null); setReply('');
+    if (!thread.summary && messages.length) {
+      fetch('/api/emails/summary', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ thread_id: thread.id }) }).then(r => r.json()).then(d => setSummary(d.summary || '')).catch(() => {});
+    }
+  }, [thread.id]); // eslint-disable-line
 
   async function ai(action: string) {
     setBusy(action);
@@ -210,10 +234,10 @@ function Reader({ thread, masterOn, onFlag, onReply, onBack, onSent }: any) {
     const d = await res.json(); setBusy('');
     if (d.text) setReply(d.text); else if (d.error) alert(d.error);
   }
-  async function send() {
-    if (!reply.trim()) return;
+  async function send(text = reply) {
+    if (!text.trim()) return;
     setBusy('send');
-    const res = await fetch('/api/emails/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ thread_id: thread.id, body: reply }) });
+    const res = await fetch('/api/emails/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ thread_id: thread.id, body: text }) });
     const d = await res.json(); setBusy('');
     if (d.ok) { setReply(''); onSent(); } else alert(d.error || 'Send failed');
   }
@@ -227,28 +251,33 @@ function Reader({ thread, masterOn, onFlag, onReply, onBack, onSent }: any) {
           <div className="text-xs text-slate-400 truncate">{thread.counterpart_name} · {thread.counterpart_email}{thread.lead_name && <> · <Link href={`/leads/${thread.lead_id}`} className="text-brand-600 hover:underline">{thread.lead_name}</Link></>}</div>
         </div>
         <button onClick={() => onFlag(thread.id, { starred: !thread.starred })} className={cn(thread.starred ? 'text-amber-400' : 'text-slate-300 hover:text-amber-300')} title="Star"><svg className="w-5 h-5" fill={thread.starred ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.196-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118L2.05 9.797c-.783-.57-.38-1.81.588-1.81h4.915a1 1 0 00.95-.69l1.519-4.674z"/></svg></button>
+        <button onClick={() => { onFlag(thread.id, { unread: 1 }); onBack(); }} className="text-slate-300 hover:text-brand-600" title="Mark unread"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg></button>
         <button onClick={() => onFlag(thread.id, { archived: !thread.archived })} className="text-slate-300 hover:text-slate-600" title="Archive"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg></button>
       </div>
 
-      {/* Autopilot control */}
-      <div className={cn('mx-5 mt-4 rounded-xl border p-3 flex items-center gap-3', thread.autopilot && masterOn ? 'border-brand-200 bg-brand-50/50' : 'border-slate-200 bg-white')}>
-        <svg className={cn('w-5 h-5 shrink-0', thread.autopilot && masterOn ? 'text-brand-600' : 'text-slate-400')} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-        <div className="flex-1 min-w-0 text-xs">
-          {!masterOn ? <span className="text-slate-500">Turn on AI Autopilot (top right) to let Claude run leads.</span>
-            : thread.autopilot ? <span className="text-slate-700 font-medium">Autopilot is running this lead · {thread.auto_mode === 'send' ? 'auto-sends replies' : 'drafts for your review'}</span>
-            : <span className="text-slate-500">You're handling this lead.</span>}
-        </div>
-        {masterOn && (thread.autopilot ? (
-          <div className="flex items-center gap-1.5">
-            <select value={thread.auto_mode} onChange={e => onFlag(thread.id, { auto_mode: e.target.value })} className="text-xs border border-slate-200 rounded-lg px-2 py-1 outline-none">
-              <option value="review">Review</option><option value="send">Auto-send</option>
-            </select>
-            <button onClick={() => onFlag(thread.id, { autopilot: false })} className="text-xs font-semibold px-2 py-1 rounded-lg bg-white border border-slate-200 text-slate-700">Take over</button>
-          </div>
-        ) : <button onClick={() => onFlag(thread.id, { autopilot: true })} className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-brand-600 text-white shrink-0">Hand to Autopilot</button>)}
-      </div>
-
       <div className="flex-1 overflow-y-auto p-5 space-y-4">
+        {/* Claude summary */}
+        <div className="rounded-xl bg-gradient-to-br from-brand-50 to-violet-50 border border-brand-100 p-4">
+          <div className="flex items-center gap-1.5 mb-1"><svg className="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg><span className="text-xs font-bold text-brand-700 uppercase tracking-wide">Claude summary</span></div>
+          <p className="text-sm text-slate-600 leading-relaxed">{summary === null ? 'Summarizing…' : (summary || 'No summary available.')}</p>
+        </div>
+
+        {/* Autopilot control */}
+        <div className={cn('rounded-xl border p-3 flex items-center gap-3', thread.autopilot && masterOn ? 'border-brand-200 bg-brand-50/50' : 'border-slate-200 bg-white')}>
+          <svg className={cn('w-5 h-5 shrink-0', thread.autopilot && masterOn ? 'text-brand-600' : 'text-slate-400')} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          <div className="flex-1 min-w-0 text-xs">
+            {!masterOn ? <span className="text-slate-500">Turn on AI Autopilot (top right) to let Claude run leads.</span>
+              : thread.autopilot ? <span className="text-slate-700 font-medium">Autopilot is running this lead · {thread.auto_mode === 'send' ? 'auto-sends replies' : 'drafts for your review'}</span>
+              : <span className="text-slate-500">You're handling this lead.</span>}
+          </div>
+          {masterOn && (thread.autopilot ? (
+            <div className="flex items-center gap-1.5">
+              <select value={thread.auto_mode} onChange={e => onFlag(thread.id, { auto_mode: e.target.value })} className="text-xs border border-slate-200 rounded-lg px-2 py-1 outline-none"><option value="review">Review</option><option value="send">Auto-send</option></select>
+              <button onClick={() => onFlag(thread.id, { autopilot: false })} className="text-xs font-semibold px-2 py-1 rounded-lg bg-white border border-slate-200 text-slate-700">Take over</button>
+            </div>
+          ) : <button onClick={() => onFlag(thread.id, { autopilot: true })} className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-brand-600 text-white shrink-0">Hand to Autopilot</button>)}
+        </div>
+
         {messages.map(m => (
           <div key={m.id} className={cn('flex', m.direction === 'out' ? 'justify-end' : 'justify-start')}>
             <div className={cn('max-w-[80%] rounded-2xl px-4 py-3 text-sm whitespace-pre-wrap', m.direction === 'out' ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-700')}>
@@ -262,36 +291,41 @@ function Reader({ thread, masterOn, onFlag, onReply, onBack, onSent }: any) {
             <div className="text-[11px] font-semibold text-amber-700 uppercase tracking-wide mb-1.5">Autopilot draft — your OK needed</div>
             <div className="text-sm text-slate-700 whitespace-pre-wrap">{thread.draft_text}</div>
             <div className="flex gap-2 mt-2.5">
-              <button onClick={async () => { await fetch('/api/emails/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ thread_id: thread.id, body: thread.draft_text }) }); onSent(); }} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-brand-600 text-white">Approve &amp; send</button>
+              <button onClick={() => send(thread.draft_text)} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-brand-600 text-white">Approve &amp; send</button>
               <button onClick={() => { setReply(thread.draft_text); onFlag(thread.id, { draft_text: '' }); }} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white border border-slate-200 text-slate-700">Edit</button>
             </div>
           </div>
         )}
       </div>
 
-      {/* Reply box */}
+      {/* actions + reply */}
       <div className="border-t border-slate-100 p-4">
+        <div className="flex flex-wrap gap-2 mb-2">
+          <button onClick={onForward} className="text-xs font-medium text-slate-600 border border-slate-200 rounded-lg px-2.5 py-1.5 inline-flex items-center gap-1"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M14 5l3 3-3 3M17 8H9"/></svg>Forward</button>
+          <button onClick={onTask} className="text-xs font-medium text-slate-600 border border-slate-200 rounded-lg px-2.5 py-1.5 inline-flex items-center gap-1"><svg className="w-3.5 h-3.5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>Create task</button>
+          <button onClick={onUpdate} disabled={!thread.lead_id} className="text-xs font-medium text-slate-600 border border-slate-200 rounded-lg px-2.5 py-1.5 inline-flex items-center gap-1 disabled:opacity-40" title={thread.lead_id ? '' : 'Link a lead to this contact first'}><svg className="w-3.5 h-3.5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>Add update to lead</button>
+        </div>
         <textarea className="input min-h-[90px] mb-2" placeholder="Write a reply…" value={reply} onChange={e => setReply(e.target.value)} />
         <div className="flex items-center gap-2 flex-wrap">
           <select value={tone} onChange={e => setTone(e.target.value)} className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 outline-none">{TONES.map(t => <option key={t}>{t}</option>)}</select>
-          <button onClick={() => ai(reply.trim() ? 'improve' : 'reply')} className="text-xs font-semibold text-brand-600 border border-brand-200 bg-brand-50 rounded-lg px-2.5 py-1.5 inline-flex items-center gap-1" disabled={!!busy}>
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
-            {busy === 'reply' || busy === 'improve' ? 'Writing…' : reply.trim() ? 'Improve' : 'Draft with Claude'}
-          </button>
+          <button onClick={() => ai(reply.trim() ? 'improve' : 'reply')} className="text-xs font-semibold text-brand-600 border border-brand-200 bg-brand-50 rounded-lg px-2.5 py-1.5 inline-flex items-center gap-1" disabled={!!busy}><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>{busy === 'reply' || busy === 'improve' ? 'Writing…' : reply.trim() ? 'Improve' : 'Draft with Claude'}</button>
           {reply.trim() && <button onClick={() => ai('shorten')} className="text-xs font-medium text-slate-500 border border-slate-200 rounded-lg px-2.5 py-1.5" disabled={!!busy}>Shorten</button>}
-          <button onClick={send} className="btn-primary ml-auto" disabled={!reply.trim() || !!busy}>{busy === 'send' ? 'Sending…' : 'Send'}</button>
+          <button onClick={() => send()} className="btn-primary ml-auto" disabled={!reply.trim() || !!busy}>{busy === 'send' ? 'Sending…' : 'Send'}</button>
         </div>
       </div>
     </>
   );
 }
 
-function Compose({ initial, onClose, onSent }: { initial: { to: string; subject: string; body: string; thread_id?: number }; onClose: () => void; onSent: () => void }) {
-  const [to, setTo] = useState(initial.to);
-  const [subject, setSubject] = useState(initial.subject);
-  const [body, setBody] = useState(initial.body);
+function Compose({ initial, sig, onClose, onSent }: { initial: any; sig: { on: boolean }; onClose: () => void; onSent: () => void }) {
+  const [to, setTo] = useState(initial.to || '');
+  const [subject, setSubject] = useState(initial.subject || '');
+  const [body, setBody] = useState(initial.body || '');
   const [tone, setTone] = useState('Friendly');
   const [busy, setBusy] = useState('');
+  const [includeSig, setIncludeSig] = useState(sig.on);
+  const [schedOn, setSchedOn] = useState(false);
+  const [schedAt, setSchedAt] = useState('');
 
   async function ai(action: string) {
     setBusy(action);
@@ -302,7 +336,9 @@ function Compose({ initial, onClose, onSent }: { initial: { to: string; subject:
   async function send() {
     if (!body.trim() || (!to.trim() && !initial.thread_id)) return;
     setBusy('send');
-    const res = await fetch('/api/emails/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to, subject, body, thread_id: initial.thread_id }) });
+    const payload: any = { to, subject, body, thread_id: initial.thread_id, include_signature: includeSig };
+    if (schedOn && schedAt) payload.schedule_at = new Date(schedAt).toISOString();
+    const res = await fetch('/api/emails/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const d = await res.json(); setBusy('');
     if (d.ok) onSent(); else alert(d.error || 'Send failed');
   }
@@ -310,26 +346,127 @@ function Compose({ initial, onClose, onSent }: { initial: { to: string; subject:
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl flex flex-col max-h-[88vh]" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-          <h2 className="font-bold text-slate-800">{initial.thread_id ? 'Reply' : 'New message'}</h2>
-          <button onClick={onClose} className="text-slate-300 hover:text-slate-500"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>
-        </div>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100"><h2 className="font-bold text-slate-800">{initial.thread_id ? 'Reply' : initial.subject?.startsWith('Fwd:') ? 'Forward' : 'New message'}</h2><button onClick={onClose} className="text-slate-300 hover:text-slate-500"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button></div>
         <div className="p-6 space-y-3 overflow-y-auto">
           <div className="flex items-center gap-3 border-b border-slate-100 pb-2"><span className="text-xs font-semibold text-slate-400 w-12">To</span><input className="flex-1 text-sm outline-none" placeholder="name@company.com" value={to} onChange={e => setTo(e.target.value)} disabled={!!initial.thread_id} /></div>
           <div className="flex items-center gap-3 border-b border-slate-100 pb-2"><span className="text-xs font-semibold text-slate-400 w-12">Subject</span><input className="flex-1 text-sm outline-none" placeholder="Add a subject" value={subject} onChange={e => setSubject(e.target.value)} /></div>
-          <textarea className="w-full text-sm leading-relaxed outline-none resize-none min-h-[220px]" placeholder="Write your message, or let Claude draft it →" value={body} onChange={e => setBody(e.target.value)} />
+          <textarea className="w-full text-sm leading-relaxed outline-none resize-none min-h-[200px]" placeholder="Write your message, or let Claude draft it →" value={body} onChange={e => setBody(e.target.value)} />
         </div>
         <div className="px-6 py-3 border-t border-slate-100 flex items-center gap-2 flex-wrap bg-slate-50/60 rounded-b-2xl">
           <select value={tone} onChange={e => setTone(e.target.value)} className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 outline-none">{TONES.map(t => <option key={t}>{t}</option>)}</select>
-          <button onClick={() => ai(body.trim() ? 'improve' : 'draft')} className="text-xs font-semibold text-brand-600 border border-brand-200 bg-brand-50 rounded-lg px-2.5 py-1.5 inline-flex items-center gap-1" disabled={!!busy}>
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
-            {busy ? 'Writing…' : body.trim() ? 'Improve' : 'Draft with Claude'}
-          </button>
+          <button onClick={() => ai(body.trim() ? 'improve' : 'draft')} className="text-xs font-semibold text-brand-600 border border-brand-200 bg-brand-50 rounded-lg px-2.5 py-1.5 inline-flex items-center gap-1" disabled={!!busy}><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1"/></svg>{busy ? 'Writing…' : body.trim() ? 'Improve' : 'Draft with Claude'}</button>
           {body.trim() && <button onClick={() => ai('shorten')} className="text-xs font-medium text-slate-500 border border-slate-200 rounded-lg px-2.5 py-1.5" disabled={!!busy}>Shorten</button>}
-          <button onClick={send} className="btn-primary ml-auto" disabled={!!busy || !body.trim()}>{busy === 'send' ? 'Sending…' : 'Send'}</button>
+          <button onClick={() => setIncludeSig(s => !s)} className={cn('text-xs font-semibold rounded-lg px-2.5 py-1.5 border', includeSig ? 'text-brand-600 border-brand-200 bg-brand-50' : 'text-slate-400 border-slate-200')}>Signature {includeSig ? 'on' : 'off'}</button>
+          <button onClick={() => setSchedOn(s => !s)} className={cn('text-xs font-semibold rounded-lg px-2.5 py-1.5 border inline-flex items-center gap-1', schedOn ? 'text-brand-600 border-brand-200 bg-brand-50' : 'text-slate-500 border-slate-200')}><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>Schedule</button>
+          {schedOn && <input type="datetime-local" value={schedAt} onChange={e => setSchedAt(e.target.value)} className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 outline-none" />}
+          <button onClick={send} className="btn-primary ml-auto" disabled={!!busy || !body.trim() || (schedOn && !schedAt)}>{busy === 'send' ? 'Sending…' : schedOn ? 'Schedule send' : 'Send'}</button>
         </div>
       </div>
     </div>
+  );
+}
+
+function ModalShell({ title, onClose, children }: any) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4"><h2 className="font-bold text-slate-800">{title}</h2><button onClick={onClose} className="text-slate-300 hover:text-slate-500"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button></div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function SignatureModal({ data, onClose, onSave }: any) {
+  const [sig, setSig] = useState(data.signature || '');
+  const [def, setDef] = useState(!!data.include_signature);
+  return (
+    <ModalShell title="Email signature" onClose={onClose}>
+      <p className="text-sm text-slate-500 mb-3">Added to the bottom of emails you send — including ones Claude writes.</p>
+      <textarea className="input min-h-[120px] font-mono text-sm" value={sig} onChange={e => setSig(e.target.value)} placeholder={`Your Name\nSales · Syruvia\nyou@syruvia.com`} />
+      <label className="flex items-center gap-2 text-sm text-slate-600 mt-3"><input type="checkbox" checked={def} onChange={e => setDef(e.target.checked)} className="rounded border-slate-300" />Include by default on new emails</label>
+      <div className="flex gap-2 pt-4"><button onClick={() => onSave({ signature: sig, include_signature: def })} className="btn-primary flex-1 justify-center">Save signature</button><button onClick={onClose} className="btn-secondary">Cancel</button></div>
+    </ModalShell>
+  );
+}
+
+function AutopilotModal({ data, onClose, onSave }: any) {
+  const [on, setOn] = useState(!!data.autopilot_master);
+  const [mode, setMode] = useState(data.autopilot_mode || 'review');
+  const [voice, setVoice] = useState(data.autopilot_voice || 'Friendly');
+  const [hours, setHours] = useState(data.autopilot_hours || 'business');
+  const [handback, setHandback] = useState(data.autopilot_handback !== false);
+  return (
+    <ModalShell title="AI Autopilot" onClose={onClose}>
+      <p className="text-sm text-slate-500 mb-4">Let Claude run a lead — replying as you until the deal moves forward. Master switch; you can still toggle any single conversation.</p>
+      <div className="flex items-center justify-between p-3 rounded-xl border border-brand-200 bg-brand-50/50 mb-4">
+        <div className="text-sm font-semibold text-slate-800">Autopilot is {on ? 'on' : 'off'}</div>
+        <button onClick={() => setOn(o => !o)} className={cn('relative inline-flex h-6 w-11 rounded-full', on ? 'bg-brand-600' : 'bg-slate-300')}><span className="absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform" style={{ transform: on ? 'translateX(20px)' : 'translateX(0)' }} /></button>
+      </div>
+      <div className="space-y-3 text-sm">
+        <div>
+          <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Default mode for new autopilot threads</div>
+          <div className="grid grid-cols-2 gap-2">
+            {[['review', 'Review before send', 'Drafts wait for your OK'], ['send', 'Send automatically', 'Replies go out on their own']].map(([v, t, s]) => (
+              <button key={v} onClick={() => setMode(v)} className={cn('text-left p-3 rounded-xl border', mode === v ? 'border-brand-300 bg-brand-50/40' : 'border-slate-200')}><span className="block font-semibold text-slate-800 text-xs">{t}</span><span className="block text-[11px] text-slate-500">{s}</span></button>
+            ))}
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div><div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Voice</div><select value={voice} onChange={e => setVoice(e.target.value)} className="input">{TONES.map(t => <option key={t}>{t}</option>)}</select></div>
+          <div><div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Only during</div><select value={hours} onChange={e => setHours(e.target.value)} className="input"><option value="business">Business hours</option><option value="any">Any time</option></select></div>
+        </div>
+        <label className="flex items-center gap-2 text-slate-600"><input type="checkbox" checked={handback} onChange={e => setHandback(e.target.checked)} className="rounded border-slate-300" />Hand back to me when the lead is ready to buy or asks for a contract</label>
+      </div>
+      <div className="flex gap-2 pt-4"><button onClick={() => onSave({ autopilot_master: on, autopilot_mode: mode, autopilot_voice: voice, autopilot_hours: hours, autopilot_handback: handback })} className="btn-primary flex-1 justify-center">Save settings</button><button onClick={onClose} className="btn-secondary">Cancel</button></div>
+    </ModalShell>
+  );
+}
+
+function TaskModal({ thread, onClose }: any) {
+  const [title, setTitle] = useState(`Follow up: ${(thread.subject || '').replace(/^Re:\s*/i, '')}`);
+  const [due, setDue] = useState('');
+  const [saving, setSaving] = useState(false);
+  async function create() {
+    if (!title.trim()) return; setSaving(true);
+    await fetch('/api/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, due_date: due || null, lead_id: thread.lead_id || null }) });
+    setSaving(false); onClose();
+  }
+  return (
+    <ModalShell title="Create task from email" onClose={onClose}>
+      <div className="space-y-3">
+        <div><label className="label">Task</label><input className="input" value={title} onChange={e => setTitle(e.target.value)} /></div>
+        <div><label className="label">Due (optional)</label><input type="date" className="input" value={due} onChange={e => setDue(e.target.value)} /></div>
+        {thread.lead_name && <div className="text-xs text-slate-400">Linked to {thread.lead_name}</div>}
+        <div className="flex gap-2 pt-1"><button onClick={create} className="btn-primary flex-1 justify-center" disabled={saving}>{saving ? 'Creating…' : 'Create task'}</button><button onClick={onClose} className="btn-secondary">Cancel</button></div>
+      </div>
+    </ModalShell>
+  );
+}
+
+function UpdateModal({ thread, onClose }: any) {
+  const [content, setContent] = useState('');
+  const [loadingSum, setLoadingSum] = useState(true);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    fetch('/api/emails/summary', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ thread_id: thread.id }) }).then(r => r.json()).then(d => { setContent(d.summary || ''); setLoadingSum(false); }).catch(() => setLoadingSum(false));
+  }, [thread.id]);
+  async function add() {
+    if (!content.trim()) return; setSaving(true);
+    await fetch('/api/updates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lead_id: thread.lead_id, content, stage_from: thread.lead_stage, stage_to: thread.lead_stage, source: 'email' }) });
+    setSaving(false); onClose();
+  }
+  return (
+    <ModalShell title="Add update to lead" onClose={onClose}>
+      <div className="space-y-3">
+        {thread.lead_name && <div className="flex items-center gap-2 p-2.5 rounded-xl bg-brand-50 border border-brand-100 text-sm font-semibold text-brand-700">{thread.lead_name}</div>}
+        <div>
+          <div className="flex items-center justify-between mb-1.5"><label className="label mb-0">Update</label><span className="text-[10px] font-semibold text-brand-600">✨ AI-summarized</span></div>
+          <textarea className="input min-h-[110px]" value={loadingSum ? 'Summarizing the conversation…' : content} onChange={e => setContent(e.target.value)} disabled={loadingSum} />
+        </div>
+        <div className="flex gap-2 pt-1"><button onClick={add} className="btn-primary flex-1 justify-center" disabled={saving || loadingSum || !content.trim()}>{saving ? 'Saving…' : 'Add update'}</button><button onClick={onClose} className="btn-secondary">Cancel</button></div>
+      </div>
+    </ModalShell>
   );
 }
 
