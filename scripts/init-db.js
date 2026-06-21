@@ -158,6 +158,7 @@ const SCHEMA = [
   `ALTER TABLE leads ADD COLUMN IF NOT EXISTS next_action TEXT DEFAULT NULL`,
   `ALTER TABLE leads ADD COLUMN IF NOT EXISTS next_action_due TEXT DEFAULT NULL`,
   `ALTER TABLE leads ADD COLUMN IF NOT EXISTS expected_close TEXT DEFAULT NULL`,
+  `ALTER TABLE leads ADD COLUMN IF NOT EXISTS category TEXT DEFAULT NULL`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ DEFAULT NULL`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS login_count INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS notifications_seen_at TIMESTAMPTZ DEFAULT NOW()`,
@@ -256,7 +257,7 @@ async function main() {
     console.log('ℹ️  Admin already exists');
   }
 
-  const defaults = [['company_name','My Company'],['currency','USD'],['timezone','America/New_York'],['accent_color','indigo'],['next_action_presets', JSON.stringify(['Call to follow up','Send proposal','Send a quote','Schedule a meeting','Negotiate terms','Send samples','Wait for their reply','Check in'])]];
+  const defaults = [['company_name','My Company'],['currency','USD'],['timezone','America/New_York'],['accent_color','indigo'],['next_action_presets', JSON.stringify(['Call to follow up','Send proposal','Send a quote','Schedule a meeting','Negotiate terms','Send samples','Wait for their reply','Check in'])],['lead_categories', JSON.stringify(['National Stores','National Distributors','Local'])]];
   for (const [k,v] of defaults) {
     await sql('INSERT INTO app_settings (key,value) VALUES ($1,$2) ON CONFLICT (key) DO NOTHING', [k, v]);
   }

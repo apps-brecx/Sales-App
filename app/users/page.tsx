@@ -81,7 +81,7 @@ export default function UsersPage() {
                   <select className="input" value={newForm.role} onChange={e=>setNewForm(f=>({...f,role:e.target.value}))}>
                     {ALL_ROLES.map(r=><option key={r} value={r}>{ROLE_CONFIG[r].label}</option>)}
                   </select>
-                  <p className="text-xs text-slate-400 mt-1">Admin: full access · Manager: can delete · Salesman: add/edit · Viewer: read only</p>
+                  <p className="text-xs text-slate-400 mt-1">Admin: full access · Manager: can delete · Salesperson: add/edit · Viewer: read only</p>
                 </div>
                 <div className="flex gap-2 pt-2"><button type="submit" className="btn-primary flex-1 justify-center">Create</button><button type="button" onClick={()=>setShowAdd(false)} className="btn-secondary">Cancel</button></div>
               </form>

@@ -169,7 +169,7 @@ function EmailsInner() {
               ) : (
                 <div className="divide-y divide-slate-50">
                   {threads.map(t => (
-                    <div key={t.id} onClick={() => openThread(t.id)} className={cn('listrow group p-4 cursor-pointer hover:bg-slate-50', activeId === t.id && 'bg-brand-50', t.unread && 'bg-brand-50/40')}>
+                    <div key={t.id} onClick={() => openThread(t.id)} className={cn('listrow group p-4 cursor-pointer hover:bg-slate-50', activeId === t.id && 'bg-brand-50', t.unread && 'bg-brand-100/60 border-l-2 border-brand-500')}>
                       <div className="flex items-start gap-3">
                         <button onClick={e => { e.stopPropagation(); flag(t.id, { starred: !t.starred }); }} className={cn('mt-0.5 shrink-0', t.starred ? 'text-amber-400' : 'text-slate-300 hover:text-amber-300')}><svg className="w-4 h-4" fill={t.starred ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.196-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118L2.05 9.797c-.783-.57-.38-1.81.588-1.81h4.915a1 1 0 00.95-.69l1.519-4.674z"/></svg></button>
                         <div className="w-9 h-9 rounded-xl bg-brand-100 text-brand-700 flex items-center justify-center text-xs font-bold shrink-0">{(t.counterpart_name || t.counterpart_email || '?')[0]?.toUpperCase()}</div>

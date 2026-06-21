@@ -14,6 +14,8 @@ export default function LeadsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [stageFilter, setStageFilter] = useState<LeadStage | 'all'>('all');
+  const [catFilter, setCatFilter] = useState('all');
+  const [categories, setCategories] = useState<string[]>([]);
   const [view, setView] = useState<'table' | 'cards' | 'kanban'>('table');
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [bulkStage, setBulkStage] = useState('');
@@ -21,12 +23,16 @@ export default function LeadsPage() {
   const [bulkLoading, setBulkLoading] = useState(false);
 
   const load = () => fetch('/api/leads').then(r=>r.json()).then(d=>{ setLeads(Array.isArray(d)?d:[]); setLoading(false); });
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    fetch('/api/settings').then(r=>r.json()).then(d=>{ try { const a = JSON.parse(d?.lead_categories||'[]'); setCategories(Array.isArray(a)?a:[]); } catch {} }).catch(()=>{});
+  }, []);
 
   const filtered = leads.filter(l => {
     const s = !search || l.company_name.toLowerCase().includes(search.toLowerCase()) || (l.contact_name||'').toLowerCase().includes(search.toLowerCase());
     const st = stageFilter === 'all' || l.stage === stageFilter;
-    return s && st;
+    const ct = catFilter === 'all' || ((l as any).category||'') === catFilter;
+    return s && st && ct;
   });
 
   const allSel = filtered.length > 0 && filtered.every(l => selected.has(l.id));
@@ -114,6 +120,12 @@ export default function LeadsPage() {
               return <button key={s} onClick={()=>setStageFilter(s)} className={cn('px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all', stageFilter===s ? `${c.bg} ${c.color} ${c.border}` : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300')}>{c.label}</button>;
             })}
           </div>
+          {categories.length > 0 && (
+            <select className="input w-auto text-sm" value={catFilter} onChange={e=>setCatFilter(e.target.value)} title="Filter by category">
+              <option value="all">All categories</option>
+              {categories.map(c=><option key={c} value={c}>{c}</option>)}
+            </select>
+          )}
           <div className="ml-auto flex gap-1 bg-slate-100 p-1 rounded-xl">
             {(['table','cards','kanban'] as const).map(v => (
               <button key={v} onClick={()=>setView(v)} className={cn('px-3 py-1 rounded-lg text-xs font-medium capitalize transition-all', view===v ? 'bg-white shadow-xs text-slate-800' : 'text-slate-500 hover:text-slate-700')}>
@@ -169,6 +181,7 @@ function TableView({ leads, selected, onToggleAll, onToggleOne, allSelected, can
                 </td>
                 <td className="px-4 py-3.5">
                   <Link href={`/leads/${lead.id}`} className="font-semibold text-slate-800 hover:text-brand-600 transition-colors">{lead.company_name}</Link>
+                  {(lead as any).category && <span className="ml-2 text-[10px] font-medium text-violet-700 bg-violet-50 border border-violet-200 px-1.5 py-0.5 rounded-full">{(lead as any).category}</span>}
                   {lead.source==='email' && <span className="ml-2 text-[10px] font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">email</span>}
                 </td>
                 <td className="px-4 py-3.5 text-slate-600">{lead.contact_name||<span className="text-slate-300">—</span>}</td>

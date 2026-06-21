@@ -265,7 +265,7 @@ export async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_email_messages_thread ON email_messages(thread_id)
   `);
 
-  for (const col of ['deleted_at TIMESTAMPTZ DEFAULT NULL', 'value TEXT DEFAULT NULL', 'tags TEXT DEFAULT NULL', 'next_action TEXT DEFAULT NULL', 'next_action_due TEXT DEFAULT NULL', 'expected_close TEXT DEFAULT NULL']) {
+  for (const col of ['deleted_at TIMESTAMPTZ DEFAULT NULL', 'value TEXT DEFAULT NULL', 'tags TEXT DEFAULT NULL', 'next_action TEXT DEFAULT NULL', 'next_action_due TEXT DEFAULT NULL', 'expected_close TEXT DEFAULT NULL', 'category TEXT DEFAULT NULL']) {
     const colName = col.split(' ')[0];
     try { await db.execute(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS ${col}`); } catch {}
   }
@@ -287,6 +287,7 @@ export async function initSchema() {
     ['company_name', 'My Company'], ['currency', 'USD'],
     ['timezone', 'America/New_York'], ['accent_color', 'indigo'],
     ['next_action_presets', JSON.stringify(['Call to follow up', 'Send proposal', 'Send a quote', 'Schedule a meeting', 'Negotiate terms', 'Send samples', 'Wait for their reply', 'Check in'])],
+    ['lead_categories', JSON.stringify(['National Stores', 'National Distributors', 'Local'])],
   ];
   for (const [k, v] of defaults) {
     await db.execute({ sql: `INSERT INTO app_settings (key,value) VALUES (?,?) ON CONFLICT (key) DO NOTHING`, args: [k, v] });
@@ -404,12 +405,12 @@ export async function getLeadById(id: number) {
 export async function findLeadByCompany(company: string) {
   return (await getDb().execute({ sql: `SELECT * FROM leads WHERE LOWER(TRIM(company_name))=LOWER(TRIM(?)) AND deleted_at IS NULL`, args: [company] })).rows[0] || null;
 }
-export async function createLead(d: { company_name: string; contact_name?: string|null; contact_email?: string|null; contact_phone?: string|null; stage?: string; assigned_to?: number|null; source?: string; notes?: string|null; value?: string|null; created_at?: string|null }) {
-  const baseArgs = [d.company_name, d.contact_name??null, d.contact_email??null, d.contact_phone??null, d.stage??'new', d.assigned_to??null, d.source??'manual', d.notes??null, d.value??null];
+export async function createLead(d: { company_name: string; contact_name?: string|null; contact_email?: string|null; contact_phone?: string|null; stage?: string; assigned_to?: number|null; source?: string; notes?: string|null; value?: string|null; category?: string|null; created_at?: string|null }) {
+  const baseArgs = [d.company_name, d.contact_name??null, d.contact_email??null, d.contact_phone??null, d.stage??'new', d.assigned_to??null, d.source??'manual', d.notes??null, d.value??null, d.category??null];
   if (d.created_at) {
-    return (await getDb().execute({ sql: `INSERT INTO leads (company_name,contact_name,contact_email,contact_phone,stage,assigned_to,source,notes,value,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?::timestamptz,?::timestamptz) RETURNING id`, args: [...baseArgs, d.created_at, d.created_at] })).lastInsertRowid;
+    return (await getDb().execute({ sql: `INSERT INTO leads (company_name,contact_name,contact_email,contact_phone,stage,assigned_to,source,notes,value,category,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?::timestamptz,?::timestamptz) RETURNING id`, args: [...baseArgs, d.created_at, d.created_at] })).lastInsertRowid;
   }
-  return (await getDb().execute({ sql: `INSERT INTO leads (company_name,contact_name,contact_email,contact_phone,stage,assigned_to,source,notes,value) VALUES (?,?,?,?,?,?,?,?,?) RETURNING id`, args: baseArgs })).lastInsertRowid;
+  return (await getDb().execute({ sql: `INSERT INTO leads (company_name,contact_name,contact_email,contact_phone,stage,assigned_to,source,notes,value,category) VALUES (?,?,?,?,?,?,?,?,?,?) RETURNING id`, args: baseArgs })).lastInsertRowid;
 }
 export async function updateLead(id: number, data: Record<string, any>) {
   const keys = Object.keys(data);
@@ -427,6 +428,31 @@ export async function restoreLeads(ids: number[]) {
 export async function permanentDeleteLeads(ids: number[]) {
   for (const id of ids) await getDb().execute({ sql: `DELETE FROM leads WHERE id=?`, args: [id] });
 }
+// ─── Lead pool (unassigned, grabbable) ──────────────────────────────────────────
+export async function getLeadPool(category?: string) {
+  const where = ['l.deleted_at IS NULL', 'l.assigned_to IS NULL', "l.stage NOT IN ('closed_won','closed_lost')"];
+  const args: any[] = [];
+  if (category) { where.push('l.category=?'); args.push(category); }
+  return (await getDb().execute({ sql: `
+    SELECT l.*, COUNT(lu.id) as update_count
+    FROM leads l LEFT JOIN lead_updates lu ON l.id=lu.lead_id
+    WHERE ${where.join(' AND ')}
+    GROUP BY l.id ORDER BY l.category NULLS LAST, l.created_at DESC`, args })).rows;
+}
+export async function grabLead(id: number, userId: number) {
+  const r = await getDb().execute({ sql: `UPDATE leads SET assigned_to=?, updated_at=NOW() WHERE id=? AND assigned_to IS NULL AND deleted_at IS NULL RETURNING id`, args: [userId, id] });
+  return r.rows.length > 0;
+}
+export async function bulkCreateLeads(rows: { company_name: string; contact_name?: string|null; contact_email?: string|null; contact_phone?: string|null; value?: string|null }[], category: string | null, source: string) {
+  let n = 0;
+  for (const r of rows) {
+    if (!r.company_name?.trim()) continue;
+    await getDb().execute({ sql: `INSERT INTO leads (company_name,contact_name,contact_email,contact_phone,value,category,source,assigned_to) VALUES (?,?,?,?,?,?,?,NULL)`, args: [r.company_name.trim(), r.contact_name||null, r.contact_email||null, r.contact_phone||null, r.value||null, category, source] });
+    n++;
+  }
+  return n;
+}
+
 export async function bulkUpdateLeads(ids: number[], data: Record<string, any>) {
   const keys = Object.keys(data);
   for (const id of ids) await getDb().execute({ sql: `UPDATE leads SET ${keys.map(k => `${k}=?`).join(',')},updated_at=NOW() WHERE id=?`, args: [...keys.map(k => data[k]), id] });

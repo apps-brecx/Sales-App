@@ -18,7 +18,7 @@ export const ALL_STAGES: LeadStage[] = ['new','contacted','follow_up','proposal'
 export const ROLE_CONFIG = {
   admin:    { label: 'Admin',    color: 'text-rose-700',    bg: 'bg-rose-50',    border: 'border-rose-200'    },
   manager:  { label: 'Manager',  color: 'text-violet-700',  bg: 'bg-violet-50',  border: 'border-violet-200'  },
-  salesman: { label: 'Salesman', color: 'text-brand-700',   bg: 'bg-brand-50',   border: 'border-brand-200'   },
+  salesman: { label: 'Salesperson', color: 'text-brand-700',   bg: 'bg-brand-50',   border: 'border-brand-200'   },
   viewer:   { label: 'Viewer',   color: 'text-slate-600',   bg: 'bg-slate-50',   border: 'border-slate-200'   },
 };
 

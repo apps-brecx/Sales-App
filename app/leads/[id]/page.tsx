@@ -26,6 +26,7 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
   const [auditItems, setAuditItems] = useState<AuditItem[]>([]);
   const [auditQuestions, setAuditQuestions] = useState<AuditQuestion[]>([]);
   const [actionPresets, setActionPresets] = useState<string[]>([]);
+  const [leadCategories, setLeadCategories] = useState<string[]>([]);
   const [naTitle, setNaTitle] = useState('');
   const [naDue, setNaDue] = useState('');
   const [editingAction, setEditingAction] = useState(false);
@@ -55,7 +56,7 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
   useEffect(() => {
     load(); loadAudits();
     fetch('/api/users').then(r=>r.json()).then(d=>setUsers(Array.isArray(d)?d:[]));
-    fetch('/api/settings').then(r=>r.json()).then(d=>setActionPresets(parseList(d?.next_action_presets))).catch(()=>{});
+    fetch('/api/settings').then(r=>r.json()).then(d=>{ setActionPresets(parseList(d?.next_action_presets)); setLeadCategories(parseList(d?.lead_categories)); }).catch(()=>{});
   }, [params.id]);
 
   async function patchLead(data: Record<string, any>) {
@@ -85,7 +86,7 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
   }
 
   async function saveEdit() {
-    await fetch(`/api/leads/${lead.id}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ company_name: editForm.company_name, contact_name: editForm.contact_name||null, contact_email: editForm.contact_email||null, contact_phone: editForm.contact_phone||null, stage: editForm.stage, assigned_to: editForm.assigned_to ? Number(editForm.assigned_to) : null, notes: editForm.notes||null, value: editForm.value||null, tags: editForm.tags||null, expected_close: editForm.expected_close||null }) });
+    await fetch(`/api/leads/${lead.id}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ company_name: editForm.company_name, contact_name: editForm.contact_name||null, contact_email: editForm.contact_email||null, contact_phone: editForm.contact_phone||null, stage: editForm.stage, assigned_to: editForm.assigned_to ? Number(editForm.assigned_to) : null, notes: editForm.notes||null, value: editForm.value||null, tags: editForm.tags||null, expected_close: editForm.expected_close||null, category: editForm.category||null }) });
     setEditMode(false); load();
   }
 
@@ -174,6 +175,7 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
                 <div><label className="label">Expected Close</label><input type="date" className="input" value={editForm.expected_close||''} onChange={e=>setEditForm((f:any)=>({...f,expected_close:e.target.value}))}/></div>
                 <div><label className="label">Stage</label><select className="input" value={editForm.stage||'new'} onChange={e=>setEditForm((f:any)=>({...f,stage:e.target.value}))}>{ALL_STAGES.map(s=><option key={s} value={s}>{STAGE_CONFIG[s].label}</option>)}</select></div>
                 <div><label className="label">Assigned To</label><select className="input" value={editForm.assigned_to||''} onChange={e=>setEditForm((f:any)=>({...f,assigned_to:e.target.value}))}><option value="">Unassigned</option>{users.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</select></div>
+                <div><label className="label">Category</label><select className="input" value={editForm.category||''} onChange={e=>setEditForm((f:any)=>({...f,category:e.target.value}))}><option value="">No category</option>{leadCategories.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
                 <div className="col-span-2"><label className="label">Tags</label><input className="input" placeholder="warm, decision-maker, urgent" value={editForm.tags||''} onChange={e=>setEditForm((f:any)=>({...f,tags:e.target.value}))}/><p className="text-xs text-slate-400 mt-1">Comma-separated</p></div>
                 <div className="col-span-2"><label className="label">Notes</label><textarea className="input resize-none" rows={2} value={editForm.notes||''} onChange={e=>setEditForm((f:any)=>({...f,notes:e.target.value}))}/></div>
               </div>
