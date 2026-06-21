@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import AppShell from '@/components/AppShell';
+import ManagerPermissions from '@/components/ManagerPermissions';
 import LeadCategorySettings from '@/components/LeadCategorySettings';
 import NextActionSettings from '@/components/NextActionSettings';
 import AuditScheduleManager from '@/components/AuditScheduleManager';
@@ -75,6 +76,8 @@ export default function SettingsPage() {
                 ))}
               </div>
             </div>
+
+            <ManagerPermissions />
 
             <LeadCategorySettings />
 

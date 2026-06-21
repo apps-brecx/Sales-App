@@ -23,18 +23,24 @@ function rawToQuestions(raw: any[]): AuditQuestion[] {
 export default function AuditPage() {
   const { data: session } = useSession();
   const role = (session?.user as any)?.role;
-  const isStaff = role === 'admin' || role === 'manager';
+  const [perms, setPerms] = useState<Record<string, boolean>>({});
+  const [viewMode, setViewMode] = useState<'sales' | 'manager'>('sales');
+  useEffect(() => {
+    if (typeof window !== 'undefined') setViewMode(localStorage.getItem('mgrView') === 'manager' ? 'manager' : 'sales');
+    if (role === 'manager') fetch('/api/me').then(r => r.json()).then(d => setPerms(d?.perms || {})).catch(() => {});
+  }, [role]);
+  const staffView = role === 'admin' || (role === 'manager' && viewMode === 'manager' && !!perms.see_team_activity);
 
   return (
     <AppShell>
       <div className="p-8 max-w-4xl mx-auto">
         <div className="mb-6">
           <h1 className="page-title">Lead Audits</h1>
-          <p className="page-sub">{isStaff
+          <p className="page-sub">{staffView
             ? 'Audits you’ve scheduled and how far each rep has gotten. Create new audits in Settings → Audit Questions.'
             : 'Review each lead an audit asks for — answer the questions, check last time’s plan, and set the next plan of action.'}</p>
         </div>
-        {isStaff ? <StaffView /> : <RepView />}
+        {staffView ? <StaffView /> : <RepView />}
       </div>
     </AppShell>
   );

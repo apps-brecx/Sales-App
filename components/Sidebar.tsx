@@ -1,6 +1,6 @@
 'use client';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { signOut, useSession } from 'next-auth/react';
 import { cn, ROLE_CONFIG } from '@/lib/utils';
 import { useEffect, useState } from 'react';
@@ -36,6 +36,27 @@ export default function Sidebar() {
   const roleCfg = role ? ROLE_CONFIG[role as keyof typeof ROLE_CONFIG] : null;
   const [unread, setUnread] = useState(0);
   const [notifUnread, setNotifUnread] = useState(0);
+  const [perms, setPerms] = useState<Record<string, boolean>>({});
+  const [viewMode, setViewMode] = useState<'sales' | 'manager'>('sales');
+  const router = useRouter();
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') setViewMode(localStorage.getItem('mgrView') === 'manager' ? 'manager' : 'sales');
+    fetch('/api/me').then(r => r.json()).then(d => setPerms(d?.perms || {})).catch(() => {});
+  }, []);
+
+  function managerVisible(href: string): boolean {
+    switch (href) {
+      case '/my': case '/my/update': return viewMode === 'sales';
+      case '/dashboard': return viewMode === 'manager' && !!perms.access_dashboard;
+      case '/notifications': return viewMode === 'manager' && !!perms.see_team_activity;
+      case '/parse-email': return !!perms.see_team_activity;
+      case '/trash': return !!perms.delete_leads;
+      case '/users': return !!perms.manage_users;
+      case '/settings': return false;
+      default: return true;
+    }
+  }
 
   useEffect(() => {
     fetch('/api/messages').then(r => r.json()).then((msgs: any[]) => {
@@ -68,7 +89,17 @@ export default function Sidebar() {
 
       {/* Nav */}
       <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
-        {NAV.filter(item => item.roles.includes(role || 'viewer')).map(item => {
+        {role === 'manager' && (
+          <div className="flex gap-1 bg-slate-100 p-1 rounded-xl mb-2">
+            {(['sales', 'manager'] as const).map(m => (
+              <button key={m} onClick={() => { setViewMode(m); try { localStorage.setItem('mgrView', m); } catch {} router.push(m === 'manager' ? (perms.access_dashboard ? '/dashboard' : '/leads') : '/my'); }}
+                className={cn('flex-1 px-2 py-1.5 rounded-lg text-xs font-semibold capitalize transition-colors', viewMode === m ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700')}>
+                {m} view
+              </button>
+            ))}
+          </div>
+        )}
+        {NAV.filter(item => role === 'manager' ? managerVisible(item.href) : item.roles.includes(role || 'viewer')).map(item => {
           const isActive = item.href === '/my'
             ? pathname === '/my'
             : pathname === item.href || (item.href !== '/leads' && pathname.startsWith(item.href + '/'));

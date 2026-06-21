@@ -2,13 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getAllLeads, getMyLeads, createLead, initSchema } from '@/lib/db';
+import { managerLacks } from '@/lib/perms';
 export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   await initSchema();
   const role = (session.user as any).role;
   const userId = (session.user as any).id ? Number((session.user as any).id) : null;
-  if (role === 'salesman' && userId) {
+  // Salespeople, and managers without the see-all-leads permission, only see their own.
+  if (userId && (role === 'salesman' || await managerLacks(role, 'see_all_leads'))) {
     return NextResponse.json(await getMyLeads(userId));
   }
   return NextResponse.json(await getAllLeads());
