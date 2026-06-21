@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import {
   getEmailAccountRaw, emailMessageExists, upsertThreadForMessage, insertEmailMessage, findLeadByEmail,
-  markEmailSynced, getAutopilotThreads, getEmailThreadFull, setThreadFlags, getDueOutbox, deleteOutbox, initSchema,
+  markEmailSynced, getAutopilotThreads, getEmailThreadFull, setThreadFlags, getDueOutbox, deleteOutbox, getThreadsNeedingOoo, initSchema,
 } from '@/lib/db';
 import { accountToConfig, fetchRecentMessages, sendMail } from '@/lib/email';
 import { aiEmail, looksReadyToBuy } from '@/lib/emailAi';
@@ -81,6 +81,23 @@ export async function POST() {
       }
     }
   } catch { /* outbox best-effort */ }
+
+  // Out-of-office auto-reply — one reply per conversation while OOO is on.
+  if (acct.ooo_enabled) {
+    try {
+      const subject = acct.ooo_subject?.trim() || 'Out of office';
+      const message = acct.ooo_message?.trim() || "Thanks for your email — I'm currently out of office and will get back to you when I return.";
+      for (const t of (await getThreadsNeedingOoo(userId)) as any[]) {
+        if (t.counterpart_email && cfg.smtp_host && (cfg.smtp_password || cfg.imap_password)) {
+          try {
+            await sendMail(cfg, { to: t.counterpart_email, subject, text: message });
+            await insertEmailMessage({ thread_id: t.id, user_id: userId, direction: 'out', from_addr: myAddr, to_addr: t.counterpart_email, subject, body_text: message, sent_at: new Date() });
+          } catch { /* skip on send error */ }
+        }
+        await setThreadFlags(userId, t.id, { ooo_replied: 1 });
+      }
+    } catch { /* OOO best-effort */ }
+  }
 
   // Autopilot pass — only when the master switch is on. Best-effort, guarded.
   let autopilot = 0;

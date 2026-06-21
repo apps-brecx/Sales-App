@@ -237,6 +237,10 @@ const SCHEMA = [
   `ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS autopilot_hours TEXT DEFAULT 'business'`,
   `ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS autopilot_handback INTEGER NOT NULL DEFAULT 1`,
   `ALTER TABLE email_threads ADD COLUMN IF NOT EXISTS summary TEXT`,
+  `ALTER TABLE email_threads ADD COLUMN IF NOT EXISTS ooo_replied INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS ooo_enabled INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS ooo_subject TEXT`,
+  `ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS ooo_message TEXT`,
   `CREATE INDEX IF NOT EXISTS idx_email_threads_user ON email_threads(user_id, last_message_at)`,
   `CREATE INDEX IF NOT EXISTS idx_email_messages_thread ON email_messages(thread_id)`,
   `CREATE TABLE IF NOT EXISTS files (

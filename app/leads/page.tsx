@@ -15,6 +15,7 @@ export default function LeadsPage() {
   const [search, setSearch] = useState('');
   const [stageFilter, setStageFilter] = useState<LeadStage | 'all'>('all');
   const [catFilter, setCatFilter] = useState('all');
+  const [assignedFilter, setAssignedFilter] = useState('all');
   const [categories, setCategories] = useState<string[]>([]);
   const [view, setView] = useState<'table' | 'cards' | 'kanban'>('table');
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -32,8 +33,11 @@ export default function LeadsPage() {
     const s = !search || l.company_name.toLowerCase().includes(search.toLowerCase()) || (l.contact_name||'').toLowerCase().includes(search.toLowerCase());
     const st = stageFilter === 'all' || l.stage === stageFilter;
     const ct = catFilter === 'all' || ((l as any).category||'') === catFilter;
-    return s && st && ct;
+    const as = assignedFilter === 'all' || ((l as any).assigned_name||'Unassigned') === assignedFilter;
+    return s && st && ct && as;
   });
+
+  const assignees = Array.from(new Set(leads.map(l => (l as any).assigned_name || 'Unassigned'))).sort();
 
   const allSel = filtered.length > 0 && filtered.every(l => selected.has(l.id));
   const toggleAll = () => allSel ? setSelected(new Set()) : setSelected(new Set(filtered.map(l=>l.id)));
@@ -124,6 +128,12 @@ export default function LeadsPage() {
             <select className="input w-auto text-sm" value={catFilter} onChange={e=>setCatFilter(e.target.value)} title="Filter by category">
               <option value="all">All categories</option>
               {categories.map(c=><option key={c} value={c}>{c}</option>)}
+            </select>
+          )}
+          {['admin','manager'].includes(role) && assignees.length > 1 && (
+            <select className="input w-auto text-sm" value={assignedFilter} onChange={e=>setAssignedFilter(e.target.value)} title="Filter by salesperson">
+              <option value="all">All salespeople</option>
+              {assignees.map(a=><option key={a} value={a}>{a}</option>)}
             </select>
           )}
           <div className="ml-auto flex gap-1 bg-slate-100 p-1 rounded-xl">
