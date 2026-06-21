@@ -87,7 +87,7 @@ export default function ParseEmailPage() {
 
         <div className="mt-8 card p-5 bg-slate-50">
           <div className="grid grid-cols-3 gap-4 text-center">
-            {[{i:'📧',t:'Paste email',d:'Drop in the raw email from your salesman'},{i:'🤖',t:'AI extracts',d:'Claude identifies every lead mentioned'},{i:'📊',t:'Auto-routes',d:'New leads created, existing ones updated'}].map(s=>(
+            {[{i:'📧',t:'Paste email',d:'Drop in the raw email from your salesman'},{i:'🤖',t:'AI extracts',d:'Syruvia AI identifies every lead mentioned'},{i:'📊',t:'Auto-routes',d:'New leads created, existing ones updated'}].map(s=>(
               <div key={s.t} className="p-3">
                 <div className="text-2xl mb-2">{s.i}</div>
                 <div className="text-xs font-semibold text-slate-700 mb-1">{s.t}</div>

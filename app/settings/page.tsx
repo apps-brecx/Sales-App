@@ -66,7 +66,7 @@ export default function SettingsPage() {
             <div className="card p-6">
               <h2 className="font-semibold text-slate-800 mb-4">App Info</h2>
               <div className="space-y-2">
-                {[['Version','2.0.0'],['Database','SQLite (local)'],['AI Model','Claude Sonnet'],['Framework','Next.js 14']].map(([k,v])=>(
+                {[['Version','2.0.0'],['Database','SQLite (local)'],['AI Model','Syruvia AI'],['Framework','Next.js 14']].map(([k,v])=>(
                   <div key={k} className="flex justify-between py-2 border-b border-slate-100 last:border-0">
                     <span className="text-sm text-slate-500">{k}</span>
                     <span className="text-sm font-semibold text-slate-700">{v}</span>
