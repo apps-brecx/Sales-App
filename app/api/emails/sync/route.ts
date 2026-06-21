@@ -32,8 +32,7 @@ export async function POST() {
   const myAddr = (cfg.email_address || cfg.imap_username).toLowerCase();
 
   let imported = 0;
-  try {
-    const msgs = await fetchRecentMessages(cfg, 40);
+  const ingest = async (msgs: any[]) => {
     msgs.sort((a, b) => a.date.getTime() - b.date.getTime());
     for (const m of msgs) {
       if (await emailMessageExists(userId, m.messageId)) continue;
@@ -52,9 +51,16 @@ export async function POST() {
       });
       imported++;
     }
+  };
+  try {
+    await ingest(await fetchRecentMessages(cfg, 40));
     await markEmailSynced(userId);
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || 'Sync failed', imported }, { status: 200 });
+  }
+  // Also pull recently-sent mail so the Sent tab reflects everything.
+  for (const folder of ['[Gmail]/Sent Mail', 'Sent']) {
+    try { await ingest(await fetchRecentMessages(cfg, 25, folder)); break; } catch { /* try next folder name */ }
   }
 
   // Deliver any scheduled sends that are now due.

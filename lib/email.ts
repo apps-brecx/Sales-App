@@ -107,7 +107,7 @@ export type FetchedMessage = {
   subject: string; text: string; date: Date;
 };
 
-export async function fetchRecentMessages(cfg: MailConfig, limit = 40): Promise<FetchedMessage[]> {
+export async function fetchRecentMessages(cfg: MailConfig, limit = 40, folder?: string): Promise<FetchedMessage[]> {
   const { ImapFlow } = await import('imapflow');
   const { simpleParser } = await import('mailparser');
   const client = new ImapFlow({
@@ -116,7 +116,7 @@ export async function fetchRecentMessages(cfg: MailConfig, limit = 40): Promise<
   });
   const out: FetchedMessage[] = [];
   await client.connect();
-  const lock = await client.getMailboxLock(cfg.imap_folder || 'INBOX');
+  const lock = await client.getMailboxLock(folder || cfg.imap_folder || 'INBOX');
   try {
     const total = (client.mailbox as any)?.exists || 0;
     if (total > 0) {
