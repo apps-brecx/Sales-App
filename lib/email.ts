@@ -90,6 +90,61 @@ export async function sendMail(cfg: MailConfig, msg: { to: string; subject: stri
   return { messageId: info.messageId };
 }
 
+// Build a decrypted MailConfig from a raw email_accounts row.
+export function accountToConfig(a: any): MailConfig {
+  return {
+    email_address: a.email_address || '',
+    imap_host: a.imap_host || '', imap_port: a.imap_port || 993, imap_username: a.imap_username || '',
+    imap_password: decryptSecret(a.imap_password_enc), imap_folder: a.imap_folder || 'INBOX', imap_secure: a.imap_secure !== 0,
+    smtp_host: a.smtp_host || '', smtp_port: a.smtp_port || 587, smtp_username: a.smtp_username || '',
+    smtp_password: decryptSecret(a.smtp_password_enc), reply_from: a.reply_from || a.email_address || '',
+  };
+}
+
+export type FetchedMessage = {
+  uid: number | null; messageId: string | null; inReplyTo: string | null;
+  from: { name: string; address: string }; to: string[];
+  subject: string; text: string; date: Date;
+};
+
+export async function fetchRecentMessages(cfg: MailConfig, limit = 40): Promise<FetchedMessage[]> {
+  const { ImapFlow } = await import('imapflow');
+  const { simpleParser } = await import('mailparser');
+  const client = new ImapFlow({
+    host: cfg.imap_host, port: cfg.imap_port || 993, secure: cfg.imap_secure !== false,
+    auth: { user: cfg.imap_username, pass: cfg.imap_password }, logger: false, emitLogs: false,
+  });
+  const out: FetchedMessage[] = [];
+  await client.connect();
+  const lock = await client.getMailboxLock(cfg.imap_folder || 'INBOX');
+  try {
+    const total = (client.mailbox as any)?.exists || 0;
+    if (total > 0) {
+      const start = Math.max(1, total - limit + 1);
+      for await (const msg of client.fetch(`${start}:*`, { uid: true, source: true })) {
+        try {
+          const parsed: any = await simpleParser(msg.source as Buffer);
+          const fromV = parsed.from?.value?.[0] || {};
+          out.push({
+            uid: msg.uid ?? null,
+            messageId: parsed.messageId || null,
+            inReplyTo: parsed.inReplyTo || null,
+            from: { name: fromV.name || '', address: String(fromV.address || '').toLowerCase() },
+            to: (parsed.to?.value || []).map((v: any) => String(v.address || '').toLowerCase()).filter(Boolean),
+            subject: parsed.subject || '(no subject)',
+            text: String(parsed.text || '').trim(),
+            date: parsed.date ? new Date(parsed.date) : new Date(),
+          });
+        } catch { /* skip unparseable */ }
+      }
+    }
+  } finally {
+    lock.release();
+    await client.logout().catch(() => {});
+  }
+  return out;
+}
+
 function cleanErr(m: string): string {
   // Surface the useful bit of common Gmail/IMAP errors.
   if (/Invalid credentials|AUTHENTICATIONFAILED|Username and Password not accepted/i.test(m)) {
