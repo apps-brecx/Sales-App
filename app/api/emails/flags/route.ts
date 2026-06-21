@@ -25,8 +25,9 @@ export async function POST(req: NextRequest) {
     if ('autopilot_hours' in a) data.autopilot_hours = a.autopilot_hours === 'any' ? 'any' : 'business';
     if ('autopilot_handback' in a) data.autopilot_handback = a.autopilot_handback ? 1 : 0;
     if ('ooo_enabled' in a) data.ooo_enabled = a.ooo_enabled ? 1 : 0;
-    if ('ooo_subject' in a) data.ooo_subject = String(a.ooo_subject || '') || null;
     if ('ooo_message' in a) data.ooo_message = String(a.ooo_message || '') || null;
+    if ('ooo_from' in a) data.ooo_from = String(a.ooo_from || '') || null;
+    if ('ooo_until' in a) data.ooo_until = String(a.ooo_until || '') || null;
     if (Object.keys(data).length) await upsertEmailAccount(userId, data);
     return NextResponse.json({ ok: true });
   }

@@ -82,19 +82,15 @@ export async function POST() {
     }
   } catch { /* outbox best-effort */ }
 
-  // Out-of-office auto-reply — one reply per conversation while OOO is on.
-  if (acct.ooo_enabled) {
+  // Out-of-office — drop an editable DRAFT reply (not auto-sent) on new conversations,
+  // but only while OOO is on and today is within the set days.
+  const today = new Date().toISOString().slice(0, 10);
+  const oooActive = acct.ooo_enabled && (!acct.ooo_from || today >= acct.ooo_from) && (!acct.ooo_until || today <= acct.ooo_until);
+  if (oooActive) {
     try {
-      const subject = acct.ooo_subject?.trim() || 'Out of office';
       const message = acct.ooo_message?.trim() || "Thanks for your email — I'm currently out of office and will get back to you when I return.";
       for (const t of (await getThreadsNeedingOoo(userId)) as any[]) {
-        if (t.counterpart_email && cfg.smtp_host && (cfg.smtp_password || cfg.imap_password)) {
-          try {
-            await sendMail(cfg, { to: t.counterpart_email, subject, text: message });
-            await insertEmailMessage({ thread_id: t.id, user_id: userId, direction: 'out', from_addr: myAddr, to_addr: t.counterpart_email, subject, body_text: message, sent_at: new Date() });
-          } catch { /* skip on send error */ }
-        }
-        await setThreadFlags(userId, t.id, { ooo_replied: 1 });
+        await setThreadFlags(userId, t.id, { draft_text: message, ooo_replied: 1 });
       }
     } catch { /* OOO best-effort */ }
   }
