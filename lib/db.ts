@@ -201,6 +201,38 @@ export async function initSchema() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS email_threads (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      thread_key TEXT NOT NULL,
+      lead_id INTEGER REFERENCES leads(id) ON DELETE SET NULL,
+      counterpart_name TEXT, counterpart_email TEXT,
+      subject TEXT,
+      last_message_at TIMESTAMPTZ,
+      last_snippet TEXT,
+      unread INTEGER NOT NULL DEFAULT 0,
+      starred INTEGER NOT NULL DEFAULT 0,
+      archived INTEGER NOT NULL DEFAULT 0,
+      autopilot INTEGER NOT NULL DEFAULT 0,
+      auto_mode TEXT NOT NULL DEFAULT 'review',
+      draft_text TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (user_id, thread_key)
+    );
+
+    CREATE TABLE IF NOT EXISTS email_messages (
+      id SERIAL PRIMARY KEY,
+      thread_id INTEGER NOT NULL REFERENCES email_threads(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      direction TEXT NOT NULL,
+      from_addr TEXT, from_name TEXT, to_addr TEXT,
+      subject TEXT, body_text TEXT,
+      message_id TEXT, in_reply_to TEXT,
+      imap_uid INTEGER, sent_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
     CREATE INDEX IF NOT EXISTS idx_leads_stage ON leads(stage);
     CREATE INDEX IF NOT EXISTS idx_leads_deleted ON leads(deleted_at);
     CREATE INDEX IF NOT EXISTS idx_updates_lead ON lead_updates(lead_id);
@@ -218,7 +250,9 @@ export async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_audit_targets_audit ON audit_targets(audit_id);
     CREATE INDEX IF NOT EXISTS idx_audit_targets_lead ON audit_targets(lead_id);
     CREATE INDEX IF NOT EXISTS idx_audit_responses_audit ON audit_responses(audit_id);
-    CREATE INDEX IF NOT EXISTS idx_audit_responses_lead ON audit_responses(lead_id)
+    CREATE INDEX IF NOT EXISTS idx_audit_responses_lead ON audit_responses(lead_id);
+    CREATE INDEX IF NOT EXISTS idx_email_threads_user ON email_threads(user_id, last_message_at);
+    CREATE INDEX IF NOT EXISTS idx_email_messages_thread ON email_messages(thread_id)
   `);
 
   for (const col of ['deleted_at TIMESTAMPTZ DEFAULT NULL', 'value TEXT DEFAULT NULL', 'tags TEXT DEFAULT NULL', 'next_action TEXT DEFAULT NULL', 'next_action_due TEXT DEFAULT NULL', 'expected_close TEXT DEFAULT NULL']) {
@@ -234,6 +268,9 @@ export async function initSchema() {
     try { await db.execute(`ALTER TABLE lead_audits ADD COLUMN IF NOT EXISTS ${col}`); } catch {}
   }
   try { await db.execute(`ALTER TABLE lead_audits ALTER COLUMN status_text DROP NOT NULL`); } catch {}
+  for (const col of ['signature TEXT', 'autopilot_master INTEGER NOT NULL DEFAULT 0']) {
+    try { await db.execute(`ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS ${col}`); } catch {}
+  }
 
   const defaults = [
     ['company_name', 'My Company'], ['currency', 'USD'],
@@ -729,6 +766,79 @@ export async function upsertEmailAccount(userId: number, data: Record<string, an
 }
 export async function markEmailSynced(userId: number) {
   await getDb().execute({ sql: `UPDATE email_accounts SET last_synced_at=NOW() WHERE user_id=?`, args: [userId] });
+}
+
+// ─── Email mailbox (threads + messages) ─────────────────────────────────────────
+export async function findLeadByEmail(email: string) {
+  if (!email) return null;
+  return (await getDb().execute({ sql: `SELECT id, company_name, contact_name, stage FROM leads WHERE deleted_at IS NULL AND LOWER(TRIM(contact_email))=LOWER(TRIM(?)) LIMIT 1`, args: [email] })).rows[0] || null;
+}
+export async function emailMessageExists(userId: number, messageId: string | null) {
+  if (!messageId) return false;
+  return (await getDb().execute({ sql: `SELECT 1 FROM email_messages WHERE user_id=? AND message_id=? LIMIT 1`, args: [userId, messageId] })).rows.length > 0;
+}
+export async function getThreadByKey(userId: number, key: string) {
+  return (await getDb().execute({ sql: `SELECT * FROM email_threads WHERE user_id=? AND thread_key=?`, args: [userId, key] })).rows[0] || null;
+}
+export async function upsertThreadForMessage(userId: number, key: string, d: { name?: string | null; email?: string | null; subject?: string | null; lastAt: string | Date; snippet?: string | null; inbound: boolean; lead_id?: number | null }) {
+  const existing: any = await getThreadByKey(userId, key);
+  const lastAt = (d.lastAt instanceof Date ? d.lastAt : new Date(d.lastAt)).toISOString();
+  if (existing) {
+    await getDb().execute({ sql: `
+      UPDATE email_threads SET
+        subject = COALESCE(subject, ?),
+        counterpart_name = COALESCE(NULLIF(counterpart_name,''), ?),
+        counterpart_email = COALESCE(counterpart_email, ?),
+        lead_id = COALESCE(lead_id, ?),
+        last_message_at = GREATEST(COALESCE(last_message_at, ?::timestamptz), ?::timestamptz),
+        last_snippet = ?,
+        unread = unread + ?,
+        updated_at = NOW()
+      WHERE id=?`,
+      args: [d.subject ?? null, d.name ?? '', d.email ?? key, d.lead_id ?? null, lastAt, lastAt, d.snippet ?? '', d.inbound ? 1 : 0, existing.id] });
+    return existing.id as number;
+  }
+  return (await getDb().execute({ sql: `
+    INSERT INTO email_threads (user_id, thread_key, lead_id, counterpart_name, counterpart_email, subject, last_message_at, last_snippet, unread)
+    VALUES (?,?,?,?,?,?,?::timestamptz,?,?) RETURNING id`,
+    args: [userId, key, d.lead_id ?? null, d.name ?? '', d.email ?? key, d.subject ?? null, lastAt, d.snippet ?? '', d.inbound ? 1 : 0] })).lastInsertRowid;
+}
+export async function insertEmailMessage(d: { thread_id: number; user_id: number; direction: 'in' | 'out'; from_addr?: string | null; from_name?: string | null; to_addr?: string | null; subject?: string | null; body_text?: string | null; message_id?: string | null; in_reply_to?: string | null; imap_uid?: number | null; sent_at?: string | Date | null }) {
+  const sentAt = d.sent_at ? (d.sent_at instanceof Date ? d.sent_at : new Date(d.sent_at)).toISOString() : new Date().toISOString();
+  return (await getDb().execute({ sql: `
+    INSERT INTO email_messages (thread_id,user_id,direction,from_addr,from_name,to_addr,subject,body_text,message_id,in_reply_to,imap_uid,sent_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?::timestamptz) RETURNING id`,
+    args: [d.thread_id, d.user_id, d.direction, d.from_addr ?? null, d.from_name ?? null, d.to_addr ?? null, d.subject ?? null, d.body_text ?? null, d.message_id ?? null, d.in_reply_to ?? null, d.imap_uid ?? null, sentAt] })).lastInsertRowid;
+}
+export async function getEmailThreads(userId: number, opts: { tab?: string; search?: string }) {
+  const where: string[] = ['t.user_id=?'];
+  const args: any[] = [userId];
+  if (opts.tab === 'starred') { where.push('t.starred=1', 't.archived=0'); }
+  else if (opts.tab === 'archived') { where.push('t.archived=1'); }
+  else { where.push('t.archived=0'); }
+  if (opts.search?.trim()) { where.push('(t.subject ILIKE ? OR t.counterpart_name ILIKE ? OR t.counterpart_email ILIKE ?)'); const s = `%${opts.search.trim()}%`; args.push(s, s, s); }
+  return (await getDb().execute({ sql: `
+    SELECT t.*, l.company_name as lead_name FROM email_threads t
+    LEFT JOIN leads l ON t.lead_id=l.id
+    WHERE ${where.join(' AND ')}
+    ORDER BY t.last_message_at DESC NULLS LAST, t.id DESC LIMIT 200`, args })).rows;
+}
+export async function getEmailThreadFull(userId: number, threadId: number) {
+  const t: any = (await getDb().execute({ sql: `SELECT t.*, l.company_name as lead_name, l.stage as lead_stage FROM email_threads t LEFT JOIN leads l ON t.lead_id=l.id WHERE t.user_id=? AND t.id=?`, args: [userId, threadId] })).rows[0] || null;
+  if (!t) return null;
+  const messages = (await getDb().execute({ sql: `SELECT * FROM email_messages WHERE thread_id=? ORDER BY sent_at ASC, id ASC`, args: [threadId] })).rows;
+  return { ...t, messages };
+}
+export async function setThreadFlags(userId: number, threadId: number, data: Record<string, any>) {
+  const keys = Object.keys(data);
+  if (keys.length === 0) return;
+  await getDb().execute({ sql: `UPDATE email_threads SET ${keys.map(k => `${k}=?`).join(',')}, updated_at=NOW() WHERE user_id=? AND id=?`, args: [...keys.map(k => data[k]), userId, threadId] });
+}
+export async function getUnreadEmailCount(userId: number) {
+  return Number((await getDb().execute({ sql: `SELECT COALESCE(SUM(unread),0)::int as c FROM email_threads WHERE user_id=? AND archived=0`, args: [userId] })).rows[0]?.c || 0);
+}
+export async function getAutopilotThreads(userId: number) {
+  return (await getDb().execute({ sql: `SELECT * FROM email_threads WHERE user_id=? AND autopilot=1 AND archived=0`, args: [userId] })).rows;
 }
 
 export async function upsertAuditResponse(d: { audit_id: number; lead_id: number; user_id: number; answers: any; plan_text: string; prev_plan_status?: string | null; prev_plan_note?: string | null }) {
