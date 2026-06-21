@@ -187,6 +187,20 @@ export async function initSchema() {
       UNIQUE (audit_id, lead_id)
     );
 
+    CREATE TABLE IF NOT EXISTS email_accounts (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+      account_name TEXT,
+      email_address TEXT NOT NULL,
+      imap_host TEXT, imap_port INTEGER DEFAULT 993, imap_username TEXT,
+      imap_password_enc TEXT, imap_folder TEXT DEFAULT 'INBOX', imap_secure INTEGER DEFAULT 1,
+      smtp_host TEXT, smtp_port INTEGER DEFAULT 587, smtp_username TEXT, smtp_password_enc TEXT,
+      reply_from TEXT,
+      last_synced_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
     CREATE INDEX IF NOT EXISTS idx_leads_stage ON leads(stage);
     CREATE INDEX IF NOT EXISTS idx_leads_deleted ON leads(deleted_at);
     CREATE INDEX IF NOT EXISTS idx_updates_lead ON lead_updates(lead_id);
@@ -697,6 +711,24 @@ export async function countPendingAuditsForUser(userId: number) {
     LEFT JOIN audit_responses r ON r.audit_id=a.id AND r.lead_id=l.id
     WHERE a.is_closed=0 AND l.deleted_at IS NULL AND l.assigned_to=? AND r.id IS NULL
   `, args: [userId] })).rows[0]?.c || 0);
+}
+
+// ─── Email Accounts (per-user IMAP/SMTP) ────────────────────────────────────────
+export async function getEmailAccountRaw(userId: number) {
+  return (await getDb().execute({ sql: `SELECT * FROM email_accounts WHERE user_id=?`, args: [userId] })).rows[0] || null;
+}
+export async function upsertEmailAccount(userId: number, data: Record<string, any>) {
+  const keys = Object.keys(data);
+  if (keys.length === 0) return;
+  const existing = await getEmailAccountRaw(userId);
+  if (existing) {
+    await getDb().execute({ sql: `UPDATE email_accounts SET ${keys.map(k => `${k}=?`).join(',')}, updated_at=NOW() WHERE user_id=?`, args: [...keys.map(k => data[k]), userId] });
+  } else {
+    await getDb().execute({ sql: `INSERT INTO email_accounts (user_id, ${keys.join(',')}) VALUES (?, ${keys.map(() => '?').join(',')})`, args: [userId, ...keys.map(k => data[k])] });
+  }
+}
+export async function markEmailSynced(userId: number) {
+  await getDb().execute({ sql: `UPDATE email_accounts SET last_synced_at=NOW() WHERE user_id=?`, args: [userId] });
 }
 
 export async function upsertAuditResponse(d: { audit_id: number; lead_id: number; user_id: number; answers: any; plan_text: string; prev_plan_status?: string | null; prev_plan_note?: string | null }) {

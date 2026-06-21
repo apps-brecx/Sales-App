@@ -9,28 +9,33 @@
     "db:init": "node scripts/init-db.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.20.9",
+    "@neondatabase/serverless": "^0.9.4",
+    "bcryptjs": "^2.4.3",
+    "clsx": "^2.1.1",
+    "date-fns": "^3.6.0",
+    "imapflow": "^1.4.2",
+    "lucide-react": "^0.383.0",
+    "mailparser": "^3.9.11",
     "next": "14.2.3",
+    "next-auth": "^4.24.7",
+    "nodemailer": "^9.0.1",
     "react": "^18",
     "react-dom": "^18",
-    "@neondatabase/serverless": "^0.9.4",
-    "next-auth": "^4.24.7",
-    "bcryptjs": "^2.4.3",
-    "@anthropic-ai/sdk": "^0.20.9",
-    "date-fns": "^3.6.0",
-    "clsx": "^2.1.1",
-    "lucide-react": "^0.383.0",
     "recharts": "^2.12.7"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/mailparser": "^3.4.6",
     "@types/node": "^20",
+    "@types/nodemailer": "^8.0.1",
     "@types/react": "^18",
     "@types/react-dom": "^18",
-    "@types/bcryptjs": "^2.4.6",
-    "typescript": "^5",
-    "tailwindcss": "^3.4.1",
-    "postcss": "^8",
     "autoprefixer": "^10.0.1",
     "eslint": "^8",
-    "eslint-config-next": "14.2.3"
+    "eslint-config-next": "14.2.3",
+    "postcss": "^8",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5"
   }
 }
