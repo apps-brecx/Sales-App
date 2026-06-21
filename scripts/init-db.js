@@ -250,6 +250,28 @@ const SCHEMA = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_files_scope ON files(scope)`,
   `CREATE INDEX IF NOT EXISTS idx_files_owner ON files(owner_id)`,
+  `CREATE TABLE IF NOT EXISTS referrals (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    distributor TEXT,
+    contact_name TEXT, contact_email TEXT, contact_phone TEXT,
+    status TEXT NOT NULL DEFAULT 'new',
+    notes TEXT,
+    assigned_to INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    deleted_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS referral_updates (
+    id SERIAL PRIMARY KEY,
+    referral_id INTEGER NOT NULL REFERENCES referrals(id) ON DELETE CASCADE,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    content TEXT NOT NULL, status_from TEXT, status_to TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_referrals_distributor ON referrals(distributor)`,
+  `CREATE INDEX IF NOT EXISTS idx_referrals_assigned ON referrals(assigned_to)`,
+  `CREATE INDEX IF NOT EXISTS idx_referral_updates_ref ON referral_updates(referral_id)`,
   `CREATE INDEX IF NOT EXISTS idx_audit_targets_audit ON audit_targets(audit_id)`,
   `CREATE INDEX IF NOT EXISTS idx_audit_targets_lead ON audit_targets(lead_id)`,
   `CREATE INDEX IF NOT EXISTS idx_audit_responses_audit ON audit_responses(audit_id)`,

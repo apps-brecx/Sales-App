@@ -24,6 +24,17 @@ export const ROLE_CONFIG = {
 
 export const EVENT_TYPES = ['Meeting','Call','Follow-up','Demo','Proposal','Other'];
 
+// Referral (store demand) statuses — a store working toward requesting our product from its distributor.
+export const REFERRAL_STATUS: Record<string, { label: string; color: string; bg: string; border: string; dot: string }> = {
+  new:        { label: 'New',         color: 'text-sky-700',     bg: 'bg-sky-50',     border: 'border-sky-200',     dot: 'bg-sky-500' },
+  contacted:  { label: 'Contacted',   color: 'text-violet-700',  bg: 'bg-violet-50',  border: 'border-violet-200',  dot: 'bg-violet-500' },
+  interested: { label: 'Interested',  color: 'text-amber-700',   bg: 'bg-amber-50',   border: 'border-amber-200',   dot: 'bg-amber-500' },
+  requested:  { label: 'Requested',   color: 'text-orange-700',  bg: 'bg-orange-50',  border: 'border-orange-200',  dot: 'bg-orange-500' },
+  stocked:    { label: 'Stocked ✓',   color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200', dot: 'bg-emerald-500' },
+  declined:   { label: 'Declined',    color: 'text-rose-700',    bg: 'bg-rose-50',    border: 'border-rose-200',    dot: 'bg-rose-500' },
+};
+export const REFERRAL_STATUSES = ['new', 'contacted', 'interested', 'requested', 'stocked', 'declined'];
+
 // ─── Audit Cycles ───────────────────────────────────────────────────────────
 // Sales reps audit every active lead (questions + plan of action) once every 2 weeks.
 // Anchored so a cycle is currently open for preview (opened 2026-06-09); every

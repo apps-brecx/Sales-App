@@ -273,7 +273,29 @@ export async function initSchema() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS idx_files_scope ON files(scope);
-    CREATE INDEX IF NOT EXISTS idx_files_owner ON files(owner_id)
+    CREATE INDEX IF NOT EXISTS idx_files_owner ON files(owner_id);
+    CREATE TABLE IF NOT EXISTS referrals (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      distributor TEXT,
+      contact_name TEXT, contact_email TEXT, contact_phone TEXT,
+      status TEXT NOT NULL DEFAULT 'new',
+      notes TEXT,
+      assigned_to INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      deleted_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS referral_updates (
+      id SERIAL PRIMARY KEY,
+      referral_id INTEGER NOT NULL REFERENCES referrals(id) ON DELETE CASCADE,
+      user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      content TEXT NOT NULL, status_from TEXT, status_to TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_referrals_distributor ON referrals(distributor);
+    CREATE INDEX IF NOT EXISTS idx_referrals_assigned ON referrals(assigned_to);
+    CREATE INDEX IF NOT EXISTS idx_referral_updates_ref ON referral_updates(referral_id)
   `);
 
   for (const col of ['deleted_at TIMESTAMPTZ DEFAULT NULL', 'value TEXT DEFAULT NULL', 'tags TEXT DEFAULT NULL', 'next_action TEXT DEFAULT NULL', 'next_action_due TEXT DEFAULT NULL', 'expected_close TEXT DEFAULT NULL', 'category TEXT DEFAULT NULL']) {
@@ -796,6 +818,49 @@ export async function countPendingAuditsForUser(userId: number) {
     LEFT JOIN audit_responses r ON r.audit_id=a.id AND r.lead_id=l.id
     WHERE a.is_closed=0 AND l.deleted_at IS NULL AND l.assigned_to=? AND r.id IS NULL
   `, args: [userId] })).rows[0]?.c || 0);
+}
+
+// ─── Referrals (store demand under a distributor) ───────────────────────────────
+export async function getReferrals(userId: number, role: string, distributor?: string) {
+  const where = ['r.deleted_at IS NULL'];
+  const args: any[] = [];
+  if (role === 'salesman') { where.push('r.assigned_to=?'); args.push(userId); }
+  if (distributor) { where.push('r.distributor=?'); args.push(distributor); }
+  return (await getDb().execute({ sql: `
+    SELECT r.*, u.name as assigned_name, COUNT(ru.id) as update_count, MAX(ru.created_at) as last_update
+    FROM referrals r LEFT JOIN users u ON r.assigned_to=u.id
+    LEFT JOIN referral_updates ru ON ru.referral_id=r.id
+    WHERE ${where.join(' AND ')}
+    GROUP BY r.id, u.name ORDER BY r.updated_at DESC`, args })).rows;
+}
+export async function getReferralById(id: number) {
+  const r: any = (await getDb().execute({ sql: `SELECT r.*, u.name as assigned_name FROM referrals r LEFT JOIN users u ON r.assigned_to=u.id WHERE r.id=?`, args: [id] })).rows[0] || null;
+  if (!r) return null;
+  const updates = (await getDb().execute({ sql: `SELECT ru.*, u.name as user_name FROM referral_updates ru LEFT JOIN users u ON ru.user_id=u.id WHERE ru.referral_id=? ORDER BY ru.created_at DESC`, args: [id] })).rows;
+  return { ...r, updates };
+}
+export async function createReferral(d: { name: string; distributor?: string | null; contact_name?: string | null; contact_email?: string | null; contact_phone?: string | null; status?: string; notes?: string | null; assigned_to?: number | null }) {
+  return (await getDb().execute({ sql: `INSERT INTO referrals (name,distributor,contact_name,contact_email,contact_phone,status,notes,assigned_to) VALUES (?,?,?,?,?,?,?,?) RETURNING id`, args: [d.name, d.distributor ?? null, d.contact_name ?? null, d.contact_email ?? null, d.contact_phone ?? null, d.status ?? 'new', d.notes ?? null, d.assigned_to ?? null] })).lastInsertRowid;
+}
+export async function updateReferral(id: number, data: Record<string, any>) {
+  const keys = Object.keys(data);
+  if (keys.length === 0) return;
+  await getDb().execute({ sql: `UPDATE referrals SET ${keys.map(k => `${k}=?`).join(',')},updated_at=NOW() WHERE id=?`, args: [...keys.map(k => data[k]), id] });
+}
+export async function softDeleteReferral(id: number) {
+  await getDb().execute({ sql: `UPDATE referrals SET deleted_at=NOW() WHERE id=?`, args: [id] });
+}
+export async function addReferralUpdate(d: { referral_id: number; user_id?: number | null; content: string; status_from?: string | null; status_to?: string | null }) {
+  const r = await getDb().execute({ sql: `INSERT INTO referral_updates (referral_id,user_id,content,status_from,status_to) VALUES (?,?,?,?,?) RETURNING id`, args: [d.referral_id, d.user_id ?? null, d.content, d.status_from ?? null, d.status_to ?? null] });
+  if (d.status_to) await getDb().execute({ sql: `UPDATE referrals SET status=?,updated_at=NOW() WHERE id=?`, args: [d.status_to, d.referral_id] });
+  else await getDb().execute({ sql: `UPDATE referrals SET updated_at=NOW() WHERE id=?`, args: [d.referral_id] });
+  return r.lastInsertRowid;
+}
+export async function getDistributors() {
+  return (await getDb().execute(`SELECT DISTINCT distributor FROM referrals WHERE deleted_at IS NULL AND distributor IS NOT NULL AND distributor<>'' ORDER BY distributor`)).rows.map((x: any) => x.distributor);
+}
+export async function renameLeadCategory(from: string, to: string) {
+  await getDb().execute({ sql: `UPDATE leads SET category=? WHERE category=?`, args: [to, from] });
 }
 
 // ─── Files (DB-stored: shared by admin, or personal) ────────────────────────────
