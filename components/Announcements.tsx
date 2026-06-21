@@ -83,6 +83,7 @@ export default function Announcements() {
             ? <button onClick={finishTour} className="btn-primary flex-1 justify-center">Done</button>
             : <button onClick={() => setStep(s => s + 1)} className="btn-primary flex-1 justify-center">Next</button>}
         </div>
+        {!last && <button onClick={finishTour} className="text-xs text-slate-400 hover:text-slate-600 mt-3 mx-auto block">Skip tutorial</button>}
       </Overlay>
     );
   }

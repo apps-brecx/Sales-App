@@ -136,6 +136,11 @@ export default function Sidebar() {
             {roleCfg && <span className={cn('badge text-[10px] mt-0.5', roleCfg.color, roleCfg.bg, roleCfg.border)}>{roleCfg.label}</span>}
           </div>
         </div>
+        <button onClick={() => { fetch('/api/whats-new', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ seen: 0 }) }).finally(() => { try { window.sessionStorage.removeItem('auditAnnounce_' + ((session?.user as any)?.id || '')); } catch {} location.reload(); }); }}
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs text-slate-400 hover:text-brand-600 hover:bg-brand-50 transition-all mb-1">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          Take a tour
+        </button>
         <button onClick={() => signOut({ callbackUrl: '/login' })}
           className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>

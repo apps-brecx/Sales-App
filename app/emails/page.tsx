@@ -111,7 +111,7 @@ function EmailsInner() {
             AI Autopilot
           </button>
           <button onClick={() => setAutoModal(true)} className="p-2 rounded-xl text-slate-400 hover:bg-slate-100" title="Autopilot settings"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z"/></svg></button>
-          <button onClick={() => setSigModal(true)} className="p-2 rounded-xl text-slate-400 hover:bg-slate-100" title="Email signature"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg></button>
+          <button onClick={() => setSigModal(true)} className="p-2 rounded-xl text-slate-400 hover:bg-slate-100" title="Signature & auto-reply"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg></button>
           <button onClick={sync} className="btn-secondary" disabled={syncing}><svg className={cn('w-4 h-4', syncing && 'animate-spin')} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>{syncing ? 'Syncing…' : 'Sync'}</button>
           <button onClick={() => setCompose({ to: '', subject: '', body: '' })} className="btn-primary"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536M9 13l6.586-6.586a2 2 0 112.828 2.828L11.828 15.83a4 4 0 01-1.897 1.013l-2.796.699.699-2.796A4 4 0 019 13z"/></svg>Compose</button>
           <button onClick={() => setAcctModal(true)} className="p-2 rounded-xl text-slate-400 hover:bg-slate-100" title="Email account"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065zM15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg></button>
@@ -422,12 +422,33 @@ function ModalShell({ title, onClose, children }: any) {
 function SignatureModal({ data, onClose, onSave }: any) {
   const [sig, setSig] = useState(data.signature || '');
   const [def, setDef] = useState(!!data.include_signature);
+  const [oooOn, setOooOn] = useState(!!data.ooo_enabled);
+  const [oooSub, setOooSub] = useState(data.ooo_subject || 'Out of office');
+  const [oooMsg, setOooMsg] = useState(data.ooo_message || '');
   return (
-    <ModalShell title="Email signature" onClose={onClose}>
-      <p className="text-sm text-slate-500 mb-3">Added to the bottom of emails you send — including ones Syruvia AI writes.</p>
-      <textarea className="input min-h-[120px] font-mono text-sm" value={sig} onChange={e => setSig(e.target.value)} placeholder={`Your Name\nSales · Syruvia\nyou@syruvia.com`} />
-      <label className="flex items-center gap-2 text-sm text-slate-600 mt-3"><input type="checkbox" checked={def} onChange={e => setDef(e.target.checked)} className="rounded border-slate-300" />Include by default on new emails</label>
-      <div className="flex gap-2 pt-4"><button onClick={() => onSave({ signature: sig, include_signature: def })} className="btn-primary flex-1 justify-center">Save signature</button><button onClick={onClose} className="btn-secondary">Cancel</button></div>
+    <ModalShell title="Signature & auto-reply" onClose={onClose}>
+      <div className="space-y-4">
+        <div>
+          <label className="label">Email signature</label>
+          <p className="text-xs text-slate-400 mb-2">Added to the bottom of emails you send — including ones Syruvia AI writes.</p>
+          <textarea className="input min-h-[110px] font-mono text-sm" value={sig} onChange={e => setSig(e.target.value)} placeholder={`Your Name\nSales · Syruvia\nyou@syruvia.com`} />
+          <label className="flex items-center gap-2 text-sm text-slate-600 mt-2"><input type="checkbox" checked={def} onChange={e => setDef(e.target.checked)} className="rounded border-slate-300" />Include by default on new emails</label>
+        </div>
+        <div className="pt-4 border-t border-slate-100">
+          <div className="flex items-center justify-between mb-1">
+            <label className="label mb-0">Out-of-office auto-reply</label>
+            <button onClick={() => setOooOn(o => !o)} className={cn('relative inline-flex h-6 w-11 rounded-full', oooOn ? 'bg-brand-600' : 'bg-slate-300')}><span className="absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform" style={{ transform: oooOn ? 'translateX(20px)' : 'translateX(0)' }} /></button>
+          </div>
+          {oooOn ? (
+            <div className="space-y-2 mt-2">
+              <input className="input text-sm" value={oooSub} onChange={e => setOooSub(e.target.value)} placeholder="Subject — e.g. Out of office" />
+              <textarea className="input min-h-[90px] text-sm" value={oooMsg} onChange={e => setOooMsg(e.target.value)} placeholder="Thanks for your email — I'm currently out of office and will reply when I return." />
+              <p className="text-xs text-slate-400">Sent automatically, once per conversation, when new email arrives (on the next sync).</p>
+            </div>
+          ) : <p className="text-xs text-slate-400">Off — incoming email gets no automatic reply.</p>}
+        </div>
+        <div className="flex gap-2 pt-1"><button onClick={() => onSave({ signature: sig, include_signature: def, ooo_enabled: oooOn, ooo_subject: oooSub, ooo_message: oooMsg })} className="btn-primary flex-1 justify-center">Save</button><button onClick={onClose} className="btn-secondary">Cancel</button></div>
+      </div>
     </ModalShell>
   );
 }
