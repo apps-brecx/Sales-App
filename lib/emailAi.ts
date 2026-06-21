@@ -28,3 +28,16 @@ export async function aiEmail(opts: AiEmailOpts): Promise<string> {
   const res = await anthropic.messages.create({ model: MODEL, max_tokens: 800, system, messages: [{ role: 'user', content: user }] });
   return res.content.filter((c: any) => c.type === 'text').map((c: any) => c.text).join('').trim();
 }
+
+export async function aiSummary(thread: { subject?: string; counterpart?: string; leadContext?: string; messages?: { direction: string; body: string }[] }): Promise<string> {
+  const convo = (thread.messages || []).map(m => `${m.direction === 'out' ? 'Me' : 'Them'}: ${m.body}`).join('\n\n');
+  const system = `You summarize a sales email thread for the salesperson in 2-3 tight sentences: where things stand, what the lead wants, and the next move. Plain text only, no preamble.`;
+  const user = `${thread.leadContext ? `Lead: ${thread.leadContext}\n` : ''}Subject: ${thread.subject || ''}\n\n${convo || '(no messages)'}`;
+  const res = await anthropic.messages.create({ model: MODEL, max_tokens: 300, system, messages: [{ role: 'user', content: user }] });
+  return res.content.filter((c: any) => c.type === 'text').map((c: any) => c.text).join('').trim();
+}
+
+// crude buying-intent detector for autopilot hand-back
+export function looksReadyToBuy(text: string): boolean {
+  return /\b(contract|invoice|purchase order|\bpo\b|sign|ready to buy|place (the |an )?order|send (me )?(the )?(quote|paperwork)|payment|terms)\b/i.test(text || '');
+}
