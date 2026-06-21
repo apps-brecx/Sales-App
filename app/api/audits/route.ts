@@ -5,6 +5,7 @@ import {
   getAuditInbox, getScheduledAudits, getScheduledAuditDetail, createScheduledAudit,
   getActiveAuditQuestions, countPendingAuditsForUser, initSchema,
 } from '@/lib/db';
+import { can, managerLacks } from '@/lib/perms';
 
 const STAFF = ['admin', 'manager'];
 
@@ -17,15 +18,16 @@ export async function GET(req: NextRequest) {
   await initSchema();
 
   const isStaff = STAFF.includes(role);
+  const teamOk = isStaff && !(await managerLacks(role, 'see_team_activity'));
   const { searchParams } = new URL(req.url);
 
-  // Admin/manager: list of scheduled audits with completion.
-  if (isStaff && searchParams.get('manage') === '1') {
+  // Admin/manager with team access: list of scheduled audits with completion.
+  if (teamOk && searchParams.get('manage') === '1') {
     return NextResponse.json({ audits: await getScheduledAudits() });
   }
-  // Admin/manager: full detail of one audit (targets + responses).
+  // Admin/manager with team access: full detail of one audit (targets + responses).
   const auditIdParam = searchParams.get('audit_id');
-  if (isStaff && auditIdParam) {
+  if (teamOk && auditIdParam) {
     const detail = await getScheduledAuditDetail(Number(auditIdParam));
     const questions = await getActiveAuditQuestions();
     return NextResponse.json({ audit: detail, questions });
@@ -47,7 +49,8 @@ export async function POST(req: NextRequest) {
   const userId = (session.user as any).id ? Number((session.user as any).id) : null;
   const role = (session.user as any).role as string;
   if (!userId) return NextResponse.json({ error: 'No user id' }, { status: 400 });
-  if (role !== 'admin') return NextResponse.json({ error: 'Admin only' }, { status: 403 });
+  await initSchema();
+  if (!(await can(role, 'manage_audits'))) return NextResponse.json({ error: 'Not allowed' }, { status: 403 });
 
   const { audit_date, scope, lead_ids, title } = await req.json();
   if (!audit_date || !/^\d{4}-\d{2}-\d{2}$/.test(String(audit_date))) {

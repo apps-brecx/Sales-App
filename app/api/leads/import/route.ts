@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { bulkCreateLeads, initSchema } from '@/lib/db';
+import { managerLacks } from '@/lib/perms';
 
 function parseRows(text: string) {
   return String(text || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean).map(line => {
@@ -22,6 +23,7 @@ export async function POST(req: NextRequest) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const role = (session.user as any).role;
   if (!['admin', 'manager'].includes(role)) return NextResponse.json({ error: 'Admin or manager only' }, { status: 403 });
+  if (await managerLacks(role, 'import_pool')) return NextResponse.json({ error: 'Not allowed' }, { status: 403 });
   const { category, text } = await req.json();
   const rows = parseRows(text);
   if (rows.length === 0) return NextResponse.json({ error: 'No valid lead rows found' }, { status: 400 });

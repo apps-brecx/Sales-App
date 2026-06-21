@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getLeadById, getUpdatesByLead, updateLead, softDeleteLead, initSchema } from '@/lib/db';
+import { managerLacks } from '@/lib/perms';
 export async function GET(_: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -21,8 +22,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function DELETE(_: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  if (!['admin','manager'].includes((session.user as any).role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const role = (session.user as any).role;
+  if (!['admin','manager'].includes(role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   await initSchema();
+  if (await managerLacks(role, 'delete_leads')) return NextResponse.json({ error: 'Not allowed' }, { status: 403 });
   await softDeleteLead(Number(params.id));
   return NextResponse.json({ success: true });
 }

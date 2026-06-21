@@ -2,15 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { updateAuditQuestion, deleteAuditQuestion, initSchema } from '@/lib/db';
-
-function isAdmin(session: any) { return (session?.user as any)?.role === 'admin'; }
+import { can } from '@/lib/perms';
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  if (!isAdmin(session)) return NextResponse.json({ error: 'Admin only' }, { status: 403 });
-  const body = await req.json();
   await initSchema();
+  if (!(await can((session.user as any)?.role, 'manage_audits'))) return NextResponse.json({ error: 'Not allowed' }, { status: 403 });
+  const body = await req.json();
   const patch: any = {};
   if (body.prompt !== undefined) patch.prompt = String(body.prompt).trim();
   if (body.options !== undefined) patch.options = Array.isArray(body.options) ? body.options.map((o: any) => String(o).trim()).filter(Boolean) : [];
@@ -24,8 +23,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  if (!isAdmin(session)) return NextResponse.json({ error: 'Admin only' }, { status: 403 });
   await initSchema();
+  if (!(await can((session.user as any)?.role, 'manage_audits'))) return NextResponse.json({ error: 'Not allowed' }, { status: 403 });
   await deleteAuditQuestion(Number(params.id));
   return NextResponse.json({ ok: true });
 }
