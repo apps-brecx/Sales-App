@@ -165,15 +165,9 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
               <h3 className="font-semibold text-slate-800">Audit</h3>
               {auditItems.some(i => !i.response_id) && <span className="badge bg-amber-50 text-amber-700 border-amber-200">{auditItems.filter(i => !i.response_id).length} pending</span>}
             </div>
-            <div className="space-y-5">
-              {auditItems.map((item, idx) => (
-                <div key={`${item.audit_id}-${item.lead_id}`} className={idx > 0 ? 'pt-5 border-t border-slate-100' : ''}>
-                  <div className="text-xs text-slate-400 mb-3">
-                    {item.title || 'Audit'} · covers {item.period_start ? `${formatDate(item.period_start)} – ` : 'up to '}{formatDate(item.audit_date)}
-                    {item.response_id ? ' · completed' : ''}
-                  </div>
-                  <AuditForm item={item} questions={auditQuestions} onSaved={() => { loadAudits(); load(); }} />
-                </div>
+            <div className="space-y-2">
+              {auditItems.map(item => (
+                <LeadAuditItem key={`${item.audit_id}-${item.lead_id}`} item={item} questions={auditQuestions} onSaved={() => { loadAudits(); load(); }} />
               ))}
             </div>
           </div>
@@ -279,6 +273,29 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
         </div>
       </div>
     </AppShell>
+  );
+}
+
+function LeadAuditItem({ item, questions, onSaved }: { item: AuditItem; questions: AuditQuestion[]; onSaved: () => void }) {
+  const isDone = !!item.response_id;
+  const [open, setOpen] = useState(!isDone);
+  return (
+    <div className={cn('rounded-xl border', isDone ? 'border-emerald-200 bg-emerald-50/20' : 'border-slate-200')}>
+      <button onClick={() => setOpen(o => !o)} className="w-full flex items-center gap-3 text-left p-3">
+        <div className={cn('w-6 h-6 rounded-full flex items-center justify-center shrink-0', isDone ? 'bg-emerald-500' : 'border-2 border-amber-300')}>
+          {isDone && <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-semibold text-slate-800 truncate">{item.title || `Audit · ${formatDate(item.audit_date)}`}</div>
+          <div className="text-xs text-slate-400 truncate">
+            covers {item.period_start ? `${formatDate(item.period_start)} – ` : 'up to '}{formatDate(item.audit_date)} · {isDone ? 'completed' : 'pending'}
+          </div>
+        </div>
+        {!isDone && <span className="badge bg-amber-50 text-amber-700 border-amber-200 shrink-0">Pending</span>}
+        <svg className={cn('w-4 h-4 text-slate-300 transition-transform shrink-0', open && 'rotate-90')} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/></svg>
+      </button>
+      {open && <div className="px-4 pb-4 pt-1"><AuditForm item={item} questions={questions} onSaved={onSaved} /></div>}
+    </div>
   );
 }
 
