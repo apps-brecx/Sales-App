@@ -36,6 +36,7 @@ function EmailsInner() {
   const [updateFor, setUpdateFor] = useState<any>(null);
   const [compose, setCompose] = useState<any>(null);
   const didLead = useRef(false);
+  const didQ = useRef(false);
 
   function load(t = tab, s = search) {
     return fetch(`/api/emails?tab=${t}&search=${encodeURIComponent(s)}`).then(r => r.json()).then(d => { setData(d); setLoading(false); return d; }).catch(() => setLoading(false));
@@ -65,6 +66,10 @@ function EmailsInner() {
   const replyCompose = (t: any, autoDraft: boolean, body = '') => setCompose({ to: t.counterpart_email, subject: t.subject?.startsWith('Re:') ? t.subject : `Re: ${t.subject || ''}`.trim(), body, thread_id: t.id, leadName: t.lead_name, leadContext: buildCtx(t), autoDraft });
   const forwardCompose = (t: any) => { const last = [...(t.messages || [])].reverse()[0]; setCompose({ to: '', subject: `Fwd: ${(t.subject || '').replace(/^(Re:|Fwd:)\s*/i, '')}`, body: `\n\n---------- Forwarded ----------\nFrom: ${last?.from_name || last?.from_addr}\n\n${last?.body_text || ''}`, leadContext: buildCtx(t) }); };
 
+  useEffect(() => {
+    const q = params.get('q');
+    if (q && !didQ.current) { didQ.current = true; setSearch(q); load(tab, q); }
+  }, []); // eslint-disable-line
   useEffect(() => { load().then(() => sync()); /* eslint-disable-next-line */ }, []);
   useEffect(() => { load(tab, search); /* eslint-disable-next-line */ }, [tab]);
   useEffect(() => {
