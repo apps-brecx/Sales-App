@@ -207,7 +207,7 @@ export async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_audit_responses_lead ON audit_responses(lead_id)
   `);
 
-  for (const col of ['deleted_at TIMESTAMPTZ DEFAULT NULL', 'value TEXT DEFAULT NULL', 'tags TEXT DEFAULT NULL']) {
+  for (const col of ['deleted_at TIMESTAMPTZ DEFAULT NULL', 'value TEXT DEFAULT NULL', 'tags TEXT DEFAULT NULL', 'next_action TEXT DEFAULT NULL', 'next_action_due TEXT DEFAULT NULL', 'expected_close TEXT DEFAULT NULL']) {
     const colName = col.split(' ')[0];
     try { await db.execute(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS ${col}`); } catch {}
   }
@@ -224,6 +224,7 @@ export async function initSchema() {
   const defaults = [
     ['company_name', 'My Company'], ['currency', 'USD'],
     ['timezone', 'America/New_York'], ['accent_color', 'indigo'],
+    ['next_action_presets', JSON.stringify(['Call to follow up', 'Send proposal', 'Send a quote', 'Schedule a meeting', 'Negotiate terms', 'Send samples', 'Wait for their reply', 'Check in'])],
   ];
   for (const [k, v] of defaults) {
     await db.execute({ sql: `INSERT INTO app_settings (key,value) VALUES (?,?) ON CONFLICT (key) DO NOTHING`, args: [k, v] });
