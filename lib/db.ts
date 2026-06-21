@@ -262,7 +262,18 @@ export async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_audit_responses_audit ON audit_responses(audit_id);
     CREATE INDEX IF NOT EXISTS idx_audit_responses_lead ON audit_responses(lead_id);
     CREATE INDEX IF NOT EXISTS idx_email_threads_user ON email_threads(user_id, last_message_at);
-    CREATE INDEX IF NOT EXISTS idx_email_messages_thread ON email_messages(thread_id)
+    CREATE INDEX IF NOT EXISTS idx_email_messages_thread ON email_messages(thread_id);
+    CREATE TABLE IF NOT EXISTS files (
+      id SERIAL PRIMARY KEY,
+      owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      scope TEXT NOT NULL DEFAULT 'personal',
+      name TEXT NOT NULL,
+      mime TEXT, size INTEGER,
+      data TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_files_scope ON files(scope);
+    CREATE INDEX IF NOT EXISTS idx_files_owner ON files(owner_id)
   `);
 
   for (const col of ['deleted_at TIMESTAMPTZ DEFAULT NULL', 'value TEXT DEFAULT NULL', 'tags TEXT DEFAULT NULL', 'next_action TEXT DEFAULT NULL', 'next_action_due TEXT DEFAULT NULL', 'expected_close TEXT DEFAULT NULL', 'category TEXT DEFAULT NULL']) {
@@ -785,6 +796,20 @@ export async function countPendingAuditsForUser(userId: number) {
     LEFT JOIN audit_responses r ON r.audit_id=a.id AND r.lead_id=l.id
     WHERE a.is_closed=0 AND l.deleted_at IS NULL AND l.assigned_to=? AND r.id IS NULL
   `, args: [userId] })).rows[0]?.c || 0);
+}
+
+// ─── Files (DB-stored: shared by admin, or personal) ────────────────────────────
+export async function createFile(d: { owner_id: number; scope: string; name: string; mime?: string | null; size?: number | null; data: string }) {
+  return (await getDb().execute({ sql: `INSERT INTO files (owner_id,scope,name,mime,size,data) VALUES (?,?,?,?,?,?) RETURNING id`, args: [d.owner_id, d.scope, d.name, d.mime ?? null, d.size ?? null, d.data] })).lastInsertRowid;
+}
+export async function getFilesForUser(userId: number) {
+  return (await getDb().execute({ sql: `SELECT f.id,f.owner_id,f.scope,f.name,f.mime,f.size,f.created_at,u.name as owner_name FROM files f LEFT JOIN users u ON f.owner_id=u.id WHERE f.scope='shared' OR f.owner_id=? ORDER BY f.created_at DESC`, args: [userId] })).rows;
+}
+export async function getFileById(id: number) {
+  return (await getDb().execute({ sql: `SELECT * FROM files WHERE id=?`, args: [id] })).rows[0] || null;
+}
+export async function deleteFile(id: number) {
+  await getDb().execute({ sql: `DELETE FROM files WHERE id=?`, args: [id] });
 }
 
 // ─── Email Accounts (per-user IMAP/SMTP) ────────────────────────────────────────

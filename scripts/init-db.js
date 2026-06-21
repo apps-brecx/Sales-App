@@ -239,6 +239,17 @@ const SCHEMA = [
   `ALTER TABLE email_threads ADD COLUMN IF NOT EXISTS summary TEXT`,
   `CREATE INDEX IF NOT EXISTS idx_email_threads_user ON email_threads(user_id, last_message_at)`,
   `CREATE INDEX IF NOT EXISTS idx_email_messages_thread ON email_messages(thread_id)`,
+  `CREATE TABLE IF NOT EXISTS files (
+    id SERIAL PRIMARY KEY,
+    owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    scope TEXT NOT NULL DEFAULT 'personal',
+    name TEXT NOT NULL,
+    mime TEXT, size INTEGER,
+    data TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_files_scope ON files(scope)`,
+  `CREATE INDEX IF NOT EXISTS idx_files_owner ON files(owner_id)`,
   `CREATE INDEX IF NOT EXISTS idx_audit_targets_audit ON audit_targets(audit_id)`,
   `CREATE INDEX IF NOT EXISTS idx_audit_targets_lead ON audit_targets(lead_id)`,
   `CREATE INDEX IF NOT EXISTS idx_audit_responses_audit ON audit_responses(audit_id)`,
