@@ -256,9 +256,9 @@ function Reader({ thread, masterOn, onFlag, onForward, onTask, onUpdate, onBack,
       </div>
 
       <div className="flex-1 overflow-y-auto p-5 space-y-4">
-        {/* Claude summary */}
+        {/* Syruvia AI summary */}
         <div className="rounded-xl bg-gradient-to-br from-brand-50 to-violet-50 border border-brand-100 p-4">
-          <div className="flex items-center gap-1.5 mb-1"><svg className="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg><span className="text-xs font-bold text-brand-700 uppercase tracking-wide">Claude summary</span></div>
+          <div className="flex items-center gap-1.5 mb-1"><svg className="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg><span className="text-xs font-bold text-brand-700 uppercase tracking-wide">Syruvia AI summary</span></div>
           <p className="text-sm text-slate-600 leading-relaxed">{summary === null ? 'Summarizing…' : (summary || 'No summary available.')}</p>
         </div>
 
@@ -266,7 +266,7 @@ function Reader({ thread, masterOn, onFlag, onForward, onTask, onUpdate, onBack,
         <div className={cn('rounded-xl border p-3 flex items-center gap-3', thread.autopilot && masterOn ? 'border-brand-200 bg-brand-50/50' : 'border-slate-200 bg-white')}>
           <svg className={cn('w-5 h-5 shrink-0', thread.autopilot && masterOn ? 'text-brand-600' : 'text-slate-400')} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
           <div className="flex-1 min-w-0 text-xs">
-            {!masterOn ? <span className="text-slate-500">Turn on AI Autopilot (top right) to let Claude run leads.</span>
+            {!masterOn ? <span className="text-slate-500">Turn on AI Autopilot (top right) to let Syruvia AI run leads.</span>
               : thread.autopilot ? <span className="text-slate-700 font-medium">Autopilot is running this lead · {thread.auto_mode === 'send' ? 'auto-sends replies' : 'drafts for your review'}</span>
               : <span className="text-slate-500">You're handling this lead.</span>}
           </div>
@@ -308,7 +308,7 @@ function Reader({ thread, masterOn, onFlag, onForward, onTask, onUpdate, onBack,
         <textarea className="input min-h-[90px] mb-2" placeholder="Write a reply…" value={reply} onChange={e => setReply(e.target.value)} />
         <div className="flex items-center gap-2 flex-wrap">
           <select value={tone} onChange={e => setTone(e.target.value)} className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 outline-none">{TONES.map(t => <option key={t}>{t}</option>)}</select>
-          <button onClick={() => ai(reply.trim() ? 'improve' : 'reply')} className="text-xs font-semibold text-brand-600 border border-brand-200 bg-brand-50 rounded-lg px-2.5 py-1.5 inline-flex items-center gap-1" disabled={!!busy}><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>{busy === 'reply' || busy === 'improve' ? 'Writing…' : reply.trim() ? 'Improve' : 'Draft with Claude'}</button>
+          <button onClick={() => ai(reply.trim() ? 'improve' : 'reply')} className="text-xs font-semibold text-brand-600 border border-brand-200 bg-brand-50 rounded-lg px-2.5 py-1.5 inline-flex items-center gap-1" disabled={!!busy}><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>{busy === 'reply' || busy === 'improve' ? 'Writing…' : reply.trim() ? 'Improve' : 'Draft with Syruvia AI'}</button>
           {reply.trim() && <button onClick={() => ai('shorten')} className="text-xs font-medium text-slate-500 border border-slate-200 rounded-lg px-2.5 py-1.5" disabled={!!busy}>Shorten</button>}
           <button onClick={() => send()} className="btn-primary ml-auto" disabled={!reply.trim() || !!busy}>{busy === 'send' ? 'Sending…' : 'Send'}</button>
         </div>
@@ -350,11 +350,11 @@ function Compose({ initial, sig, onClose, onSent }: { initial: any; sig: { on: b
         <div className="p-6 space-y-3 overflow-y-auto">
           <div className="flex items-center gap-3 border-b border-slate-100 pb-2"><span className="text-xs font-semibold text-slate-400 w-12">To</span><input className="flex-1 text-sm outline-none" placeholder="name@company.com" value={to} onChange={e => setTo(e.target.value)} disabled={!!initial.thread_id} /></div>
           <div className="flex items-center gap-3 border-b border-slate-100 pb-2"><span className="text-xs font-semibold text-slate-400 w-12">Subject</span><input className="flex-1 text-sm outline-none" placeholder="Add a subject" value={subject} onChange={e => setSubject(e.target.value)} /></div>
-          <textarea className="w-full text-sm leading-relaxed outline-none resize-none min-h-[200px]" placeholder="Write your message, or let Claude draft it →" value={body} onChange={e => setBody(e.target.value)} />
+          <textarea className="w-full text-sm leading-relaxed outline-none resize-none min-h-[200px]" placeholder="Write your message, or let Syruvia AI draft it →" value={body} onChange={e => setBody(e.target.value)} />
         </div>
         <div className="px-6 py-3 border-t border-slate-100 flex items-center gap-2 flex-wrap bg-slate-50/60 rounded-b-2xl">
           <select value={tone} onChange={e => setTone(e.target.value)} className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 outline-none">{TONES.map(t => <option key={t}>{t}</option>)}</select>
-          <button onClick={() => ai(body.trim() ? 'improve' : 'draft')} className="text-xs font-semibold text-brand-600 border border-brand-200 bg-brand-50 rounded-lg px-2.5 py-1.5 inline-flex items-center gap-1" disabled={!!busy}><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1"/></svg>{busy ? 'Writing…' : body.trim() ? 'Improve' : 'Draft with Claude'}</button>
+          <button onClick={() => ai(body.trim() ? 'improve' : 'draft')} className="text-xs font-semibold text-brand-600 border border-brand-200 bg-brand-50 rounded-lg px-2.5 py-1.5 inline-flex items-center gap-1" disabled={!!busy}><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1"/></svg>{busy ? 'Writing…' : body.trim() ? 'Improve' : 'Draft with Syruvia AI'}</button>
           {body.trim() && <button onClick={() => ai('shorten')} className="text-xs font-medium text-slate-500 border border-slate-200 rounded-lg px-2.5 py-1.5" disabled={!!busy}>Shorten</button>}
           <button onClick={() => setIncludeSig(s => !s)} className={cn('text-xs font-semibold rounded-lg px-2.5 py-1.5 border', includeSig ? 'text-brand-600 border-brand-200 bg-brand-50' : 'text-slate-400 border-slate-200')}>Signature {includeSig ? 'on' : 'off'}</button>
           <button onClick={() => setSchedOn(s => !s)} className={cn('text-xs font-semibold rounded-lg px-2.5 py-1.5 border inline-flex items-center gap-1', schedOn ? 'text-brand-600 border-brand-200 bg-brand-50' : 'text-slate-500 border-slate-200')}><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>Schedule</button>
@@ -382,7 +382,7 @@ function SignatureModal({ data, onClose, onSave }: any) {
   const [def, setDef] = useState(!!data.include_signature);
   return (
     <ModalShell title="Email signature" onClose={onClose}>
-      <p className="text-sm text-slate-500 mb-3">Added to the bottom of emails you send — including ones Claude writes.</p>
+      <p className="text-sm text-slate-500 mb-3">Added to the bottom of emails you send — including ones Syruvia AI writes.</p>
       <textarea className="input min-h-[120px] font-mono text-sm" value={sig} onChange={e => setSig(e.target.value)} placeholder={`Your Name\nSales · Syruvia\nyou@syruvia.com`} />
       <label className="flex items-center gap-2 text-sm text-slate-600 mt-3"><input type="checkbox" checked={def} onChange={e => setDef(e.target.checked)} className="rounded border-slate-300" />Include by default on new emails</label>
       <div className="flex gap-2 pt-4"><button onClick={() => onSave({ signature: sig, include_signature: def })} className="btn-primary flex-1 justify-center">Save signature</button><button onClick={onClose} className="btn-secondary">Cancel</button></div>
@@ -398,7 +398,7 @@ function AutopilotModal({ data, onClose, onSave }: any) {
   const [handback, setHandback] = useState(data.autopilot_handback !== false);
   return (
     <ModalShell title="AI Autopilot" onClose={onClose}>
-      <p className="text-sm text-slate-500 mb-4">Let Claude run a lead — replying as you until the deal moves forward. Master switch; you can still toggle any single conversation.</p>
+      <p className="text-sm text-slate-500 mb-4">Let Syruvia AI run a lead — replying as you until the deal moves forward. Master switch; you can still toggle any single conversation.</p>
       <div className="flex items-center justify-between p-3 rounded-xl border border-brand-200 bg-brand-50/50 mb-4">
         <div className="text-sm font-semibold text-slate-800">Autopilot is {on ? 'on' : 'off'}</div>
         <button onClick={() => setOn(o => !o)} className={cn('relative inline-flex h-6 w-11 rounded-full', on ? 'bg-brand-600' : 'bg-slate-300')}><span className="absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform" style={{ transform: on ? 'translateX(20px)' : 'translateX(0)' }} /></button>
